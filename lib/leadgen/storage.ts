@@ -1,0 +1,934 @@
+﻿import "server-only";
+
+import { createSupabaseServerClient } from "@/lib/supabase/client";
+import { CAMPAIGN_FIELDS, COMPANY_FIELDS, CONTACT_FIELDS, LEAD_FIELDS, SIGNAL_FIELDS } from "@/lib/leadgen/storage-projections";
+import { leadgenHistoryResetAt } from "@/lib/leadgen/history-policy";
+import {
+  compactCompanyForStorage,
+  compactContactsForStorage,
+} from "@/lib/leadgen/storage-compaction";
+import { normalizeLeadgenStrings } from "@/lib/leadgen/text-normalization";
+import type {
+  DiscoverySuccessMetrics,
+  LeadgenCampaign,
+  LeadgenCampaignDetails,
+  LeadgenCampaignSummary,
+  LeadgenCompany,
+  LeadgenContact,
+  LeadgenLead,
+  LeadgenSignal,
+  LeadDiscoveryResult,
+  MockPipelineResult,
+  OutreachEmailStatus,
+  CampaignOperationalStatus,
+  OutreachQueueEntry,
+  TelegramNotification,
+} from "@/lib/leadgen/types";
+import {
+  buildOutreachQueueEntry,
+  getOutreachIdempotencyKey,
+  getOutreachQueueId,
+  isEmailReadyContact,
+} from "@/lib/leadgen/outreach-queue";
+
+type SupabaseServerClient = ReturnType<typeof createSupabaseServerClient>;
+
+type SavePipelineInput = {
+  result: LeadDiscoveryResult | MockPipelineResult;
+  notifications: TelegramNotification[];
+};
+
+type SavePipelineResult = {
+  pipeline_run_id: string;
+  campaign_id: string;
+  companies_count: number;
+  contacts_count: number;
+  leads_count: number;
+  signals_count: number;
+  events_count: number;
+  notifications_count: number;
+  discovery_metrics?: DiscoverySuccessMetrics;
+};
+
+type StoredCampaign = Pick<
+  LeadgenCampaign,
+  "id" | "pipeline_run_id" | "name" | "status" | "created_at"
+>;
+
+type StoredLeadCampaignRef = Pick<
+  LeadgenLead,
+  "campaign_id" | "contact_value"
+>;
+
+type StoredCompanyCampaignRef = Pick<LeadgenCompany, "campaign_id">;
+type StoredContactCampaignRef = Pick<LeadgenContact, "campaign_id" | "email">;
+type StoredOutreachCampaignRef = {
+  campaign_id: string;
+  status: string;
+  message_kind?: "initial" | "follow_up";
+};
+
+function deriveCampaignOperationalStatus(counts: {
+  needsReview: number;
+  approved: number;
+  queued: number;
+  sending: number;
+  sent: number;
+  failed: number;
+}): CampaignOperationalStatus {
+  if (counts.failed > 0) return "needs_attention";
+  if (counts.sending > 0 || counts.queued > 0) return "queue_active";
+  if (counts.approved > 0) return "ready_to_send";
+  if (counts.needsReview > 0) return "needs_review";
+  if (counts.sent > 0) return "sent";
+  return "discovery_complete";
+}
+
+function isMissingRelationError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+
+  const maybeError = error as {
+    code?: unknown;
+    message?: unknown;
+  };
+  const code = typeof maybeError.code === "string" ? maybeError.code : "";
+  const message =
+    typeof maybeError.message === "string"
+      ? maybeError.message.toLowerCase()
+      : "";
+
+  return (
+    code === "42P01" ||
+    code === "PGRST205" ||
+    message.includes("leadgen_companies") && message.includes("not") ||
+    message.includes("leadgen_contacts") && message.includes("not")
+  );
+}
+
+async function saveCampaign(
+  supabase: SupabaseServerClient,
+  campaign: LeadgenCampaign,
+) {
+  const { error } = await supabase.from("leadgen_campaigns").insert(campaign);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function saveLeads(supabase: SupabaseServerClient, leads: LeadgenLead[]) {
+  if (leads.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase.from("leadgen_leads").insert(leads);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function saveCompanies(
+  supabase: SupabaseServerClient,
+  companies: LeadgenCompany[],
+) {
+  if (companies.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from("leadgen_companies")
+    .insert(companies.map(compactCompanyForStorage));
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function saveContacts(
+  supabase: SupabaseServerClient,
+  contacts: LeadgenContact[],
+) {
+  if (contacts.length === 0) {
+    return;
+  }
+
+  const compactedContacts = compactContactsForStorage(contacts);
+  if (compactedContacts.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase
+    .from("leadgen_contacts")
+    .insert(compactedContacts);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function saveSignals(
+  supabase: SupabaseServerClient,
+  signals: LeadgenSignal[],
+) {
+  if (signals.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase.from("leadgen_signals").insert(signals);
+
+  if (error) {
+    throw error;
+  }
+}
+
+async function rollbackPipelineResult(
+  supabase: SupabaseServerClient,
+  campaignId: string,
+): Promise<string | null> {
+  const { error } = await supabase
+    .from("leadgen_campaigns")
+    .delete()
+    .eq("id", campaignId);
+
+  if (error) {
+    return error.message;
+  }
+
+  return null;
+}
+
+export async function savePipelineResult({
+  result,
+}: SavePipelineInput): Promise<SavePipelineResult> {
+  const supabase = createSupabaseServerClient();
+  const normalizedResult = normalizeLeadgenStrings(result, "storage.save.result");
+
+  try {
+    await saveCampaign(supabase, normalizedResult.campaign);
+    await saveCompanies(supabase, normalizedResult.companies ?? []);
+    await saveLeads(supabase, normalizedResult.leads);
+    await saveSignals(supabase, normalizedResult.signals);
+    await saveContacts(supabase, normalizedResult.contacts ?? []);
+  } catch (error) {
+    const rollbackErrorMessage = await rollbackPipelineResult(
+      supabase,
+      normalizedResult.campaign.id,
+    );
+
+    if (rollbackErrorMessage) {
+      throw new Error(
+        `Pipeline save failed. Rollback also failed: ${rollbackErrorMessage}`,
+        { cause: error },
+      );
+    }
+
+    throw error;
+  }
+
+  return {
+    pipeline_run_id: normalizedResult.campaign.pipeline_run_id,
+    campaign_id: normalizedResult.campaign.id,
+    companies_count:
+      normalizedResult.companies?.length ?? normalizedResult.leads.length,
+    contacts_count: normalizedResult.contacts?.length ?? 0,
+    leads_count: normalizedResult.leads.length,
+    signals_count: normalizedResult.signals.length,
+    events_count: 0,
+    notifications_count: 0,
+    discovery_metrics:
+      "discovery_metrics" in normalizedResult
+        ? normalizedResult.discovery_metrics
+        : undefined,
+  };
+}
+
+async function rollbackDiscoveryPass(
+  supabase: SupabaseServerClient,
+  pipelineRunId: string,
+) {
+  const tables = [
+    "leadgen_telegram_notifications",
+    "leadgen_events",
+    "leadgen_contacts",
+    "leadgen_signals",
+    "leadgen_leads",
+    "leadgen_companies",
+  ] as const;
+
+  for (const table of tables) {
+    await supabase.from(table).delete().eq("pipeline_run_id", pipelineRunId);
+  }
+}
+
+export async function appendPipelineResult({
+  result,
+}: SavePipelineInput): Promise<SavePipelineResult> {
+  const supabase = createSupabaseServerClient();
+  const normalizedResult = normalizeLeadgenStrings(
+    result,
+    "storage.append.result",
+  );
+  const campaignId = normalizedResult.campaign.id;
+  const pipelineRunId = normalizedResult.campaign.pipeline_run_id;
+  const campaignCheck = await supabase
+    .from("leadgen_campaigns")
+    .select("id")
+    .eq("id", campaignId)
+    .maybeSingle<Pick<LeadgenCampaign, "id">>();
+
+  if (campaignCheck.error) throw campaignCheck.error;
+  if (!campaignCheck.data) {
+    throw new Error("Кампания для продолжения поиска не найдена.");
+  }
+
+  try {
+    await saveCompanies(supabase, normalizedResult.companies ?? []);
+    await saveLeads(supabase, normalizedResult.leads);
+    await saveSignals(supabase, normalizedResult.signals);
+    await saveContacts(supabase, normalizedResult.contacts ?? []);
+    const campaignUpdate = await supabase
+      .from("leadgen_campaigns")
+      .update({
+        production_discovery_stats:
+          normalizedResult.campaign.production_discovery_stats ?? {},
+      })
+      .eq("id", campaignId);
+    if (campaignUpdate.error) throw campaignUpdate.error;
+  } catch (error) {
+    await rollbackDiscoveryPass(supabase, pipelineRunId);
+    throw error;
+  }
+
+  return {
+    pipeline_run_id: pipelineRunId,
+    campaign_id: campaignId,
+    companies_count:
+      normalizedResult.companies?.length ?? normalizedResult.leads.length,
+    contacts_count: normalizedResult.contacts?.length ?? 0,
+    leads_count: normalizedResult.leads.length,
+    signals_count: normalizedResult.signals.length,
+    events_count: 0,
+    notifications_count: 0,
+    discovery_metrics:
+      "discovery_metrics" in normalizedResult
+        ? normalizedResult.discovery_metrics
+        : undefined,
+  };
+}
+
+export async function getRecentCampaigns(
+  limit = 10,
+): Promise<LeadgenCampaignSummary[]> {
+  const supabase = createSupabaseServerClient();
+  const { data: campaigns, error: campaignsError } = await supabase
+    .from("leadgen_campaigns")
+    .select("id,pipeline_run_id,name,status,created_at")
+    .gt("created_at", leadgenHistoryResetAt)
+    .order("created_at", { ascending: false })
+    .limit(limit)
+    .returns<StoredCampaign[]>();
+
+  if (campaignsError) {
+    throw campaignsError;
+  }
+
+  if (!campaigns || campaigns.length === 0) {
+    return [];
+  }
+
+  const campaignIds = campaigns.map((campaign) => campaign.id);
+  const [
+    { data: companies, error: companiesError },
+    { data: contacts, error: contactsError },
+    { data: leads, error: leadsError },
+    { data: outreach, error: outreachError },
+  ] = await Promise.all([
+    supabase
+      .from("leadgen_companies")
+      .select("campaign_id")
+      .in("campaign_id", campaignIds)
+      .returns<StoredCompanyCampaignRef[]>(),
+    supabase
+      .from("leadgen_contacts")
+      .select("campaign_id,email")
+      .in("campaign_id", campaignIds)
+      .returns<StoredContactCampaignRef[]>(),
+    supabase
+      .from("leadgen_leads")
+      .select("campaign_id,contact_value")
+      .in("campaign_id", campaignIds)
+      .returns<StoredLeadCampaignRef[]>(),
+    supabase
+      .from("leadgen_outreach_queue")
+      .select("campaign_id,status,message_kind")
+      .in("campaign_id", campaignIds)
+      .returns<StoredOutreachCampaignRef[]>(),
+  ]);
+
+  if (companiesError && !isMissingRelationError(companiesError)) {
+    throw companiesError;
+  }
+
+  if (leadsError) {
+    throw leadsError;
+  }
+
+  if (contactsError && !isMissingRelationError(contactsError)) {
+    throw contactsError;
+  }
+  if (outreachError && !isMissingRelationError(outreachError)) {
+    throw outreachError;
+  }
+
+  const companyCounts = new Map<string, number>();
+  const legacyLeadCounts = new Map<string, number>();
+  const contactCounts = new Map<string, number>();
+  const emailCounts = new Map<string, number>();
+  const sentCounts = new Map<string, number>();
+  const initialSentCounts = new Map<string, number>();
+  const followupSentCounts = new Map<string, number>();
+  const outreachCounts = new Map<string, {
+    needsReview: number; approved: number; queued: number; sending: number; sent: number; failed: number;
+  }>();
+
+  for (const contact of contactsError ? [] : contacts ?? []) {
+    contactCounts.set(
+      contact.campaign_id,
+      (contactCounts.get(contact.campaign_id) ?? 0) + 1,
+    );
+    if (contact.email) {
+      emailCounts.set(contact.campaign_id, (emailCounts.get(contact.campaign_id) ?? 0) + 1);
+    }
+  }
+
+  for (const item of outreachError ? [] : outreach ?? []) {
+    const counts = outreachCounts.get(item.campaign_id) ?? {
+      needsReview: 0, approved: 0, queued: 0, sending: 0, sent: 0, failed: 0,
+    };
+    if (item.message_kind !== "follow_up") {
+      if (["draft", "needs_review"].includes(item.status)) counts.needsReview += 1;
+      else if (item.status === "approved") counts.approved += 1;
+      else if (item.status === "queued") counts.queued += 1;
+      else if (item.status === "sending") counts.sending += 1;
+      else if (item.status === "failed") counts.failed += 1;
+    }
+    if (item.status === "sent") {
+      if (item.message_kind !== "follow_up") counts.sent += 1;
+      sentCounts.set(item.campaign_id, (sentCounts.get(item.campaign_id) ?? 0) + 1);
+      const target = item.message_kind === "follow_up" ? followupSentCounts : initialSentCounts;
+      target.set(item.campaign_id, (target.get(item.campaign_id) ?? 0) + 1);
+    }
+    outreachCounts.set(item.campaign_id, counts);
+  }
+
+  for (const company of companiesError ? [] : companies ?? []) {
+    companyCounts.set(
+      company.campaign_id,
+      (companyCounts.get(company.campaign_id) ?? 0) + 1,
+    );
+  }
+
+  for (const lead of leads ?? []) {
+    legacyLeadCounts.set(
+      lead.campaign_id,
+      (legacyLeadCounts.get(lead.campaign_id) ?? 0) + 1,
+    );
+
+    if (!contactCounts.has(lead.campaign_id) && lead.contact_value) {
+      contactCounts.set(
+        lead.campaign_id,
+        (contactCounts.get(lead.campaign_id) ?? 0) + 1,
+      );
+    }
+  }
+
+  return normalizeLeadgenStrings(campaigns.map((campaign) => {
+    const counts = outreachCounts.get(campaign.id) ?? {
+      needsReview: 0, approved: 0, queued: 0, sending: 0, sent: 0, failed: 0,
+    };
+    return {
+    ...campaign,
+    companies_count:
+      companyCounts.get(campaign.id) ?? legacyLeadCounts.get(campaign.id) ?? 0,
+    leads_count: legacyLeadCounts.get(campaign.id) ?? 0,
+    contacts_count: contactCounts.get(campaign.id) ?? 0,
+    email_count: emailCounts.get(campaign.id) ?? 0,
+    sent_count: sentCounts.get(campaign.id) ?? 0,
+    initial_sent_count: initialSentCounts.get(campaign.id) ?? 0,
+    followup_sent_count: followupSentCounts.get(campaign.id) ?? 0,
+    needs_review_count: counts.needsReview,
+    approved_count: counts.approved,
+    queued_count: counts.queued,
+    sending_count: counts.sending,
+    failed_count: counts.failed,
+    operational_status: deriveCampaignOperationalStatus(counts),
+  };}), "storage.read.campaigns");
+}
+
+export async function getCampaignDetails(
+  campaignId: string,
+): Promise<LeadgenCampaignDetails | null> {
+  const supabase = createSupabaseServerClient();
+
+  const { data: campaign, error: campaignError } = await supabase
+    .from("leadgen_campaigns")
+    .select(CAMPAIGN_FIELDS)
+    .eq("id", campaignId)
+    .single<LeadgenCampaign>();
+
+  if (campaignError) {
+    if (campaignError.code === "PGRST116") {
+      return null;
+    }
+
+    throw campaignError;
+  }
+
+  const [
+    { data: companies, error: companiesError },
+    { data: contacts, error: contactsError },
+    { data: leads, error: leadsError },
+    { data: signals, error: signalsError },
+    { data: campaignOutreach, error: campaignOutreachError },
+  ] = await Promise.all([
+    supabase
+      .from("leadgen_companies")
+      .select(COMPANY_FIELDS)
+      .eq("campaign_id", campaignId)
+      .order("lead_score", { ascending: false })
+      .returns<LeadgenCompany[]>(),
+    supabase
+      .from("leadgen_contacts")
+      .select(CONTACT_FIELDS)
+      .eq("campaign_id", campaignId)
+      .order("is_primary", { ascending: false })
+      .order("confidence_score", { ascending: false })
+      .returns<LeadgenContact[]>(),
+    supabase
+      .from("leadgen_leads")
+      .select(LEAD_FIELDS)
+      .eq("campaign_id", campaignId)
+      .order("created_at", { ascending: true })
+      .returns<LeadgenLead[]>(),
+    supabase
+      .from("leadgen_signals")
+      .select(SIGNAL_FIELDS)
+      .eq("campaign_id", campaignId)
+      .order("confidence_score", { ascending: false })
+      .returns<LeadgenSignal[]>(),
+    supabase
+      .from("leadgen_outreach_queue")
+      .select("campaign_id,status,message_kind")
+      .eq("campaign_id", campaignId)
+      .returns<StoredOutreachCampaignRef[]>(),
+  ]);
+
+  if (companiesError && !isMissingRelationError(companiesError)) {
+    throw companiesError;
+  }
+
+  if (leadsError) {
+    throw leadsError;
+  }
+
+  if (contactsError && !isMissingRelationError(contactsError)) {
+    throw contactsError;
+  }
+
+  if (signalsError) {
+    throw signalsError;
+  }
+
+  if (campaignOutreachError && !isMissingRelationError(campaignOutreachError)) {
+    throw campaignOutreachError;
+  }
+
+  const storedCompanies = companiesError ? [] : companies ?? [];
+  const storedContacts = contactsError ? [] : contacts ?? [];
+  const storedLeads = leads ?? [];
+  const storedSignals = signals ?? [];
+  const detailOutreach = campaignOutreachError ? [] : campaignOutreach ?? [];
+  const initialOutreach = detailOutreach.filter(
+    (item) => item.message_kind !== "follow_up",
+  );
+  const detailCounts = {
+    needsReview: initialOutreach.filter((item) => ["draft", "needs_review"].includes(item.status)).length,
+    approved: initialOutreach.filter((item) => item.status === "approved").length,
+    queued: initialOutreach.filter((item) => item.status === "queued").length,
+    sending: initialOutreach.filter((item) => item.status === "sending").length,
+    sent: initialOutreach.filter((item) => item.status === "sent").length,
+    failed: initialOutreach.filter((item) => item.status === "failed").length,
+  };
+
+  return normalizeLeadgenStrings({
+    campaign: {
+      ...campaign,
+      operational_status: deriveCampaignOperationalStatus(detailCounts),
+    },
+    companies: storedCompanies,
+    contacts: storedContacts,
+    leads: storedLeads,
+    signals: storedSignals,
+    events: [],
+    notifications: [],
+    stats: {
+      companies_count:
+        storedCompanies.length > 0 ? storedCompanies.length : storedLeads.length,
+      leads_count: storedLeads.length,
+      contacts_count:
+        storedContacts.length > 0
+          ? storedContacts.length
+          : storedLeads.filter((lead) => lead.contact_value).length,
+      signals_count: storedSignals.length,
+      notifications_count: 0,
+      events_count: 0,
+      initial_sent_count: detailOutreach.filter((item) => item.status === "sent" && item.message_kind !== "follow_up").length,
+      followup_sent_count: detailOutreach.filter((item) => item.status === "sent" && item.message_kind === "follow_up").length,
+      needs_review_count: detailCounts.needsReview,
+      approved_count: detailCounts.approved,
+      queued_count: detailCounts.queued,
+      sending_count: detailCounts.sending,
+      failed_count: detailCounts.failed,
+    },
+  }, "storage.read.details");
+}
+
+export async function getCampaignDetailsByPipelineRunId(
+  pipelineRunId: string,
+): Promise<LeadgenCampaignDetails | null> {
+  const supabase = createSupabaseServerClient();
+  const { data: campaign, error } = await supabase
+    .from("leadgen_campaigns")
+    .select("id")
+    .eq("pipeline_run_id", pipelineRunId)
+    .single<Pick<LeadgenCampaign, "id">>();
+
+  if (error) {
+    if (error.code === "PGRST116") {
+      return null;
+    }
+    throw error;
+  }
+
+  return getCampaignDetails(campaign.id);
+}
+
+function getContactIdFromOutreachId(id: string): string {
+  return id.startsWith("outreach-") ? id.slice("outreach-".length) : id;
+}
+
+async function getContactByOutreachId(
+  supabase: SupabaseServerClient,
+  id: string,
+): Promise<LeadgenContact | null> {
+  const contactId = getContactIdFromOutreachId(id);
+  const { data, error } = await supabase
+    .from("leadgen_contacts")
+    .select(CONTACT_FIELDS)
+    .eq("id", contactId)
+    .single<LeadgenContact>();
+
+  if (error) {
+    if (error.code === "PGRST116") {
+      return null;
+    }
+
+    throw error;
+  }
+
+  return data;
+}
+
+async function updateContactOutreachQueue(
+  supabase: SupabaseServerClient,
+  contact: LeadgenContact,
+  patch: Partial<NonNullable<LeadgenContact["metadata"]["outreach_queue"]>>,
+  status?: OutreachEmailStatus,
+  note?: string,
+): Promise<LeadgenContact> {
+  const now = new Date().toISOString();
+  const currentQueue = contact.metadata.outreach_queue;
+  const nextStatus = status ?? patch.status ?? currentQueue?.status ?? "draft";
+  const nextQueue = {
+    id: currentQueue?.id ?? getOutreachQueueId(contact.id),
+    status: nextStatus,
+    subject:
+      patch.subject ??
+      currentQueue?.subject ??
+      (typeof contact.metadata.email_subject === "string"
+        ? contact.metadata.email_subject
+        : ""),
+    body:
+      patch.body ??
+      currentQueue?.body ??
+      (typeof contact.metadata.email_body === "string"
+        ? contact.metadata.email_body
+        : ""),
+    idempotency_key:
+      patch.idempotency_key ??
+      currentQueue?.idempotency_key ??
+      [contact.campaign_id, contact.lead_id, contact.email?.toLowerCase() ?? ""].join(
+        ":",
+      ),
+    approved_at:
+      patch.approved_at ??
+      (nextStatus === "approved" ? now : currentQueue?.approved_at ?? null),
+    queued_at:
+      patch.queued_at ??
+      (nextStatus === "queued" ? now : currentQueue?.queued_at ?? null),
+    sent_at:
+      patch.sent_at ??
+      (nextStatus === "sent" ? now : currentQueue?.sent_at ?? null),
+    provider: patch.provider ?? currentQueue?.provider ?? null,
+    provider_message_id:
+      patch.provider_message_id ?? currentQueue?.provider_message_id ?? null,
+    send_attempts: patch.send_attempts ?? currentQueue?.send_attempts ?? 0,
+    last_error: patch.last_error ?? currentQueue?.last_error ?? null,
+    follow_up_due_at: patch.follow_up_due_at ?? currentQueue?.follow_up_due_at ?? null,
+    follow_up_status:
+      patch.follow_up_status ?? currentQueue?.follow_up_status ?? null,
+    history: [
+      ...(currentQueue?.history ?? []),
+      { status: nextStatus, at: now, ...(note ? { note } : {}) },
+    ],
+  };
+  const metadata = {
+    ...contact.metadata,
+    outreach_queue: nextQueue,
+  };
+  const { data, error } = await supabase
+    .from("leadgen_contacts")
+    .update({ metadata })
+    .eq("id", contact.id)
+    .select(CONTACT_FIELDS)
+    .single<LeadgenContact>();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export async function getOutreachQueue({
+  campaignId,
+}: {
+  campaignId?: string | null;
+} = {}): Promise<OutreachQueueEntry[]> {
+  const supabase = createSupabaseServerClient();
+  let campaignIds = campaignId ? [campaignId] : [];
+
+  if (!campaignId) {
+    const campaigns = await getRecentCampaigns(5);
+    campaignIds = campaigns.map((campaign) => campaign.id);
+  }
+
+  if (campaignIds.length === 0) {
+    return [];
+  }
+
+  const [
+    { data: contacts, error: contactsError },
+    { data: leads, error: leadsError },
+    { data: companies, error: companiesError },
+    { data: signals, error: signalsError },
+  ] = await Promise.all([
+    supabase
+      .from("leadgen_contacts")
+      .select(CONTACT_FIELDS)
+      .in("campaign_id", campaignIds)
+      .returns<LeadgenContact[]>(),
+    supabase
+      .from("leadgen_leads")
+      .select(LEAD_FIELDS)
+      .in("campaign_id", campaignIds)
+      .returns<LeadgenLead[]>(),
+    supabase
+      .from("leadgen_companies")
+      .select(COMPANY_FIELDS)
+      .in("campaign_id", campaignIds)
+      .returns<LeadgenCompany[]>(),
+    supabase
+      .from("leadgen_signals")
+      .select(SIGNAL_FIELDS)
+      .in("campaign_id", campaignIds)
+      .returns<LeadgenSignal[]>(),
+  ]);
+
+  if (contactsError) throw contactsError;
+  if (leadsError) throw leadsError;
+  if (companiesError && !isMissingRelationError(companiesError)) throw companiesError;
+  if (signalsError) throw signalsError;
+
+  const leadsById = new Map((leads ?? []).map((lead) => [lead.id, lead]));
+  const companiesById = new Map(
+    (companies ?? []).map((company) => [company.id, company]),
+  );
+  const signalsByLeadId = new Map<string, LeadgenSignal>();
+
+  for (const signal of signals ?? []) {
+    if (!signalsByLeadId.has(signal.lead_id)) {
+      signalsByLeadId.set(signal.lead_id, signal);
+    }
+  }
+
+  const dedupedEntries = new Map<string, OutreachQueueEntry>();
+
+  for (const contact of contacts ?? []) {
+    const entry = buildOutreachQueueEntry({
+      contact,
+      lead: leadsById.get(contact.lead_id) ?? null,
+      company: contact.company_id
+        ? companiesById.get(contact.company_id) ?? null
+        : null,
+      signal: signalsByLeadId.get(contact.lead_id) ?? null,
+    });
+
+    if (!entry || dedupedEntries.has(entry.idempotency_key)) {
+      continue;
+    }
+
+    dedupedEntries.set(entry.idempotency_key, entry);
+  }
+
+  return normalizeLeadgenStrings(
+    Array.from(dedupedEntries.values()),
+    "storage.read.outreach_queue",
+  );
+}
+
+export async function queueReadyOutreachEmails({
+  campaignId,
+}: {
+  campaignId: string;
+}): Promise<OutreachQueueEntry[]> {
+  const supabase = createSupabaseServerClient();
+  const { data: contacts, error } = await supabase
+    .from("leadgen_contacts")
+    .select(CONTACT_FIELDS)
+    .eq("campaign_id", campaignId)
+    .returns<LeadgenContact[]>();
+
+  if (error) {
+    throw error;
+  }
+
+  const emailContacts = (contacts ?? []).filter(isEmailReadyContact);
+  const seenIdempotencyKeys = new Set<string>();
+
+  for (const contact of emailContacts) {
+    if (contact.metadata.outreach_queue?.status === "sent") {
+      continue;
+    }
+
+    const idempotencyKey =
+      contact.metadata.outreach_queue?.idempotency_key ??
+      getOutreachIdempotencyKey({
+        campaignId: contact.campaign_id,
+        email: contact.email ?? "",
+      });
+
+    if (seenIdempotencyKeys.has(idempotencyKey)) {
+      continue;
+    }
+
+    seenIdempotencyKeys.add(idempotencyKey);
+
+    await updateContactOutreachQueue(
+      supabase,
+      contact,
+      { idempotency_key: idempotencyKey },
+      contact.metadata.outreach_queue?.status ?? "needs_review",
+      "Добавлено в очередь проверки",
+    );
+  }
+
+  return getOutreachQueue({ campaignId });
+}
+
+export async function updateOutreachQueueEntry({
+  id,
+  subject,
+  body,
+  status,
+  note,
+}: {
+  id: string;
+  subject?: string;
+  body?: string;
+  status?: OutreachEmailStatus;
+  note?: string;
+}): Promise<OutreachQueueEntry | null> {
+  const supabase = createSupabaseServerClient();
+  const contact = await getContactByOutreachId(supabase, id);
+
+  if (!contact) {
+    return null;
+  }
+
+  const patch: Partial<NonNullable<LeadgenContact["metadata"]["outreach_queue"]>> = {};
+
+  if (typeof subject === "string") {
+    patch.subject = subject.trim();
+  }
+
+  if (typeof body === "string") {
+    patch.body = body.trim();
+  }
+
+  const nextStatus =
+    status ??
+    (typeof subject === "string" || typeof body === "string"
+      ? "needs_review"
+      : undefined);
+  const updated = await updateContactOutreachQueue(
+    supabase,
+    contact,
+    patch,
+    nextStatus,
+    note ?? (nextStatus === "needs_review" ? "Письмо отредактировано" : undefined),
+  );
+  const [entry] = await getOutreachQueue({ campaignId: updated.campaign_id });
+
+  return (
+    (await getOutreachQueue({ campaignId: updated.campaign_id })).find(
+      (item) => item.contact_id === updated.id,
+    ) ?? entry ?? null
+  );
+}
+
+export async function markOutreachQueueEntry({
+  id,
+  status,
+  note,
+  patch = {},
+}: {
+  id: string;
+  status: OutreachEmailStatus;
+  note?: string;
+  patch?: Partial<NonNullable<LeadgenContact["metadata"]["outreach_queue"]>>;
+}): Promise<OutreachQueueEntry | null> {
+  const supabase = createSupabaseServerClient();
+  const contact = await getContactByOutreachId(supabase, id);
+
+  if (!contact) {
+    return null;
+  }
+
+  const updated = await updateContactOutreachQueue(
+    supabase,
+    contact,
+    patch,
+    status,
+    note,
+  );
+
+  return (
+    (await getOutreachQueue({ campaignId: updated.campaign_id })).find(
+      (item) => item.contact_id === updated.id,
+    ) ?? null
+  );
+}

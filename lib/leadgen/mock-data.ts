@@ -1,0 +1,155 @@
+import type { MockCompany } from "@/lib/leadgen/types";
+
+// Эти записи намеренно фиктивны и нужны только для проверки процесса.
+export const mockCompanies: MockCompany[] = [
+  {
+    id: "northstar-cloud",
+    name: "Northstar Cloud",
+    domain: "northstar-cloud.example",
+    segment: "B2B SaaS",
+    contacts: [
+      {
+        channel: "department-head",
+        label: "Руководитель направления роста",
+        value: "growth@northstar-cloud.example",
+      },
+      {
+        channel: "general-email",
+        label: "Общая электронная почта",
+        value: "hello@northstar-cloud.example",
+      },
+    ],
+    signal: {
+      type: "HIRING_SIGNAL",
+      title: "Найм специалистов по росту",
+      detail: "Компания открыла три вакансии в направлениях роста и продаж.",
+      sourceLabel: "Тестовая страница вакансий",
+      sourceUrl: "https://northstar-cloud.example/careers",
+      confidenceScore: 88,
+      foundAt: "2026-06-01T09:00:00.000Z",
+    },
+    signals: [
+      {
+        type: "HIRING_SIGNAL",
+        title: "Найм специалистов по росту",
+        detail: "Компания открыла три вакансии в направлениях роста и продаж.",
+        sourceLabel: "Тестовая страница вакансий",
+        sourceUrl: "https://northstar-cloud.example/careers",
+        confidenceScore: 88,
+        foundAt: "2026-06-01T09:00:00.000Z",
+      },
+      {
+        type: "GROWTH_SIGNAL",
+        title: "Расширение коммерческой команды",
+        detail: "В описании вакансий указано масштабирование outbound-направления.",
+        sourceLabel: "Тестовое описание вакансии SDR",
+        sourceUrl: "https://northstar-cloud.example/careers/sdr",
+        confidenceScore: 78,
+        foundAt: "2026-06-01T09:10:00.000Z",
+      },
+    ],
+  },
+  {
+    id: "orbit-analytics",
+    name: "Orbit Analytics",
+    domain: "orbit-analytics.example",
+    segment: "Платформа данных",
+    contacts: [
+      {
+        channel: "founder",
+        label: "Основатель",
+        value: "founder@orbit-analytics.example",
+      },
+      {
+        channel: "linkedin",
+        label: "LinkedIn компании",
+        value: "linkedin.com/company/orbit-analytics-example",
+      },
+    ],
+    signal: {
+      type: "GO_TO_MARKET_SIGNAL",
+      title: "Запуск продукта",
+      detail: "Компания представила новое аналитическое рабочее пространство.",
+      sourceLabel: "Тестовый раздел новостей компании",
+      sourceUrl: "https://orbit-analytics.example/news/workspace-launch",
+      confidenceScore: 91,
+      foundAt: "2026-06-02T11:30:00.000Z",
+    },
+    signals: [
+      {
+        type: "GO_TO_MARKET_SIGNAL",
+        title: "Запуск продукта",
+        detail: "Компания представила новое аналитическое рабочее пространство.",
+        sourceLabel: "Тестовый раздел новостей компании",
+        sourceUrl: "https://orbit-analytics.example/news/workspace-launch",
+        confidenceScore: 91,
+        foundAt: "2026-06-02T11:30:00.000Z",
+      },
+      {
+        type: "TECH_SIGNAL",
+        title: "Новая AI-интеграция",
+        detail: "В релизе описана интеграция AI-ассистента для анализа данных.",
+        sourceLabel: "Тестовая страница продукта",
+        sourceUrl: "https://orbit-analytics.example/product/ai-assistant",
+        confidenceScore: 83,
+        foundAt: "2026-06-02T11:45:00.000Z",
+      },
+    ],
+  },
+  {
+    id: "vector-ops",
+    name: "Vector Ops",
+    domain: "vector-ops.example",
+    segment: "ПО для управления операциями",
+    contacts: [
+      {
+        channel: "general-email",
+        label: "Общая электронная почта",
+        value: "team@vector-ops.example",
+      },
+      {
+        channel: "website-form",
+        label: "Форма на сайте",
+        value: "vector-ops.example/contact",
+      },
+    ],
+    signal: {
+      type: "CONTENT_SIGNAL",
+      title: "Высокий темп публикаций",
+      detail: "За месяц компания опубликовала пять обучающих материалов о продукте.",
+      sourceLabel: "Тестовый блог компании",
+      sourceUrl: "https://vector-ops.example/blog",
+      confidenceScore: 84,
+      foundAt: "2026-06-03T08:20:00.000Z",
+    },
+    signals: [
+      {
+        type: "CONTENT_SIGNAL",
+        title: "Высокий темп публикаций",
+        detail: "За месяц компания опубликовала пять обучающих материалов о продукте.",
+        sourceLabel: "Тестовый блог компании",
+        sourceUrl: "https://vector-ops.example/blog",
+        confidenceScore: 84,
+        foundAt: "2026-06-03T08:20:00.000Z",
+      },
+      {
+        type: "TRAFFIC_SIGNAL",
+        title: "Новая страница демо",
+        detail: "На сайте появилась отдельная посадочная страница для записи на демо.",
+        sourceLabel: "Тестовый лендинг демо",
+        sourceUrl: "https://vector-ops.example/demo",
+        confidenceScore: 76,
+        foundAt: "2026-06-03T08:35:00.000Z",
+      },
+      {
+        type: "TECH_SIGNAL",
+        title: "Интеграции с CRM",
+        detail: "Компания описывает новые интеграции с CRM и операционными системами.",
+        sourceLabel: "Тестовая страница интеграций",
+        sourceUrl: "https://vector-ops.example/integrations",
+        confidenceScore: 72,
+        foundAt: "2026-06-03T08:40:00.000Z",
+      },
+    ],
+  },
+];
