@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createLocalSupabaseClient } from "@/lib/supabase/local-client";
+import { createStorageAdapter } from "@/lib/leadgen/storage-adapter";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LooseRow = Record<string, any>;
@@ -37,7 +37,7 @@ interface StorageClient {
 }
 
 export function createSupabaseServerClient(): StorageClient {
-  // Runtime is deliberately local-first. Remote Supabase access is isolated in
-  // the explicit backup sync module and can never block operational workflows.
-  return createLocalSupabaseClient() as unknown as StorageClient;
+  // Kept as a compatibility name for the existing business modules. The
+  // client edition always resolves through the local StorageAdapter.
+  return createStorageAdapter() as unknown as StorageClient;
 }

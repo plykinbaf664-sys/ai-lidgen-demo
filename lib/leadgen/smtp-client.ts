@@ -1,5 +1,6 @@
 import net from "node:net";
 import tls from "node:tls";
+import { assertClientMailboxIsolation } from "@/lib/leadgen/mailbox-isolation";
 import { randomUUID } from "node:crypto";
 import type { Duplex } from "node:stream";
 
@@ -388,6 +389,7 @@ export function getSmtpConfigFromEnv(): SmtpConfig {
     throw new Error("SMTP_SECURE должен быть true или false.");
   }
 
+  assertClientMailboxIsolation(process.env.SMTP_USER!.trim());
   return {
     host: process.env.SMTP_HOST!.trim(),
     port,

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { CampaignForm } from "@/components/leadgen/campaign-form";
+import { ClientProfileForm } from "@/components/leadgen/client-profile-form";
 import { CampaignHistory } from "@/components/leadgen/campaign-history";
 import { EmailOutreachQueue } from "@/components/leadgen/email-outreach-queue";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import {
   canContinueDiscovery,
   DISCOVERY_MAX_PASSES,
 } from "@/lib/leadgen/discovery-continuation";
+import type { ClientProfile } from "@/lib/leadgen/client-profile-types";
 
 type RunResponse =
   | {
@@ -69,7 +71,13 @@ export function LeadgenDashboard() {
   const [isOpening, setIsOpening] = useState(false);
   const [runProgress, setRunProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [profileReady, setProfileReady] = useState(false);
+  const [clientName, setClientName] = useState("Клиент");
   const activeCampaignRef = useRef<HTMLElement | null>(null);
+  const handleProfileReady = useCallback((ready: boolean, profile: ClientProfile) => {
+    setProfileReady(ready);
+    setClientName(profile.projectName || "Клиент");
+  }, []);
 
   async function loadHistory(selectLatest = false) {
     setIsHistoryLoading(true);
@@ -120,12 +128,12 @@ export function LeadgenDashboard() {
       let finalCampaign: LeadgenCampaign | null = null;
       let completedTarget = false;
       let finalFound = 0;
-      let finalTarget = 50;
+      let finalTarget = input.targetCount ?? 20;
       for (let pass = 1; pass <= DISCOVERY_MAX_PASSES; pass += 1) {
         setRunProgress(
           campaignId
-            ? `Продолжаем поиск: проход ${pass}, готово ${discovery?.email_ready_companies ?? discovery?.new_unique_emails ?? 0} из 50 компаний с подтверждённым email`
-            : "Первый проход поиска: цель — до 50 новых компаний с подтверждённым email",
+            ? `Продолжаем поиск: проход ${pass}, готово ${discovery?.email_ready_companies ?? discovery?.new_unique_emails ?? 0} из ${finalTarget}`
+            : `Первый проход поиска: цель — ${finalTarget} готовых лидов`,
         );
         const response = await fetch("/api/leadgen/run", {
           method: "POST",
@@ -169,7 +177,7 @@ export function LeadgenDashboard() {
       if (finalCampaign) setActiveCampaignName(finalCampaign.name);
       if (!completedTarget) {
         throw new Error(
-          `Поиск не завершён: готово ${finalFound} из ${finalTarget}. Промежуточный результат сохранён; продолжите поиск до 50.`,
+          `Поиск не завершён: готово ${finalFound} из ${finalTarget}. Промежуточный результат сохранён; продолжите поиск.`,
         );
       }
     } catch (caught) {
@@ -191,6 +199,9 @@ export function LeadgenDashboard() {
         name: activeCampaignName,
         requestedBy:
           campaignDetails?.campaign.requested_by ?? "Оператор Leadgen OS",
+        targetCount: campaignDetails?.campaign.target_count ?? 20,
+        segmentId: campaignDetails?.campaign.segment_id,
+        segmentDescription: campaignDetails?.campaign.segment_description,
       },
       activeCampaignId,
     );
@@ -226,7 +237,7 @@ export function LeadgenDashboard() {
   const discoveryFound =
     discovery?.email_ready_companies ?? discovery?.new_unique_emails ?? 0;
   const discoveryTarget =
-    discovery?.email_ready_target ?? discovery?.email_target ?? 50;
+    discovery?.email_ready_target ?? discovery?.email_target ?? 20;
   const discoveryIncomplete = Boolean(
     discovery &&
       discovery.target_reached !== true &&
@@ -235,20 +246,33 @@ export function LeadgenDashboard() {
 
   return (
     <div className="leadgen-console">
-      <section className="leadgen-config panel">
+      <ClientProfileForm onReady={handleProfileReady} />
+
+      <section className="client-overview panel" aria-label="Сводка">
+        <div><span>ICP клиента</span><strong>{clientName}</strong></div>
+        <div><span>Кампаний</span><strong>{campaigns.length}</strong></div>
+        <div><span>Готово к проверке</span><strong>{campaigns.reduce((sum, item) => sum + item.needs_review_count, 0)}</strong></div>
+        <div><span>Одобрено</span><strong>{campaigns.reduce((sum, item) => sum + item.approved_count, 0)}</strong></div>
+        <div><span>В очереди</span><strong>{campaigns.reduce((sum, item) => sum + item.queued_count + item.sending_count, 0)}</strong></div>
+        <div><span>Отправлено</span><strong>{campaigns.reduce((sum, item) => sum + item.initial_sent_count + item.followup_sent_count, 0)}</strong></div>
+        <div><span>Ответов</span><strong>{campaigns.reduce((sum, item) => sum + item.reply_count, 0)}</strong></div>
+      </section>
+
+      <section className="leadgen-config panel" id="new-search">
         <div className="section-heading compact">
           <div><p className="eyebrow">Новая кампания</p><h2>Параметры поиска</h2></div>
           <div className="config-facts" aria-label="Активные ограничения">
-            <span>Россия</span><span>Web search</span><span>До 50 компаний с подтверждённым email за запуск</span>
+            <span>Актуальный ICP</span><span>Публичный web search</span><span>5 / 10 / 20 готовых лидов</span>
           </div>
         </div>
-        <CampaignForm isRunning={isRunning} onRun={handleRun} />
+        <CampaignForm disabled={!profileReady} isRunning={isRunning} onRun={handleRun} />
+        {!profileReady ? <p className="muted">Сначала заполните и сохраните ICP клиента.</p> : null}
         {runProgress ? <p className="muted">{runProgress}</p> : null}
         {error ? <p className="outreach-error" role="alert">{error}</p> : null}
       </section>
 
       {activeCampaignId ? (
-        <section className="active-campaign-shell" ref={activeCampaignRef}>
+        <section className="active-campaign-shell" id="leads" ref={activeCampaignRef}>
           <div className="active-campaign-heading">
             <div><p className="eyebrow">Текущая кампания</p><h2>{activeCampaignName}</h2>{campaigns.find((item) => item.id === activeCampaignId) ? <small className="muted">{campaignStatusCopyForDashboard(campaigns.find((item) => item.id === activeCampaignId)!.operational_status)}</small> : null}</div>
             {canContinueDiscovery(discovery) ? (
@@ -258,7 +282,7 @@ export function LeadgenDashboard() {
                 onClick={handleContinueSearch}
                 variant="secondary"
               >
-                Продолжить поиск до 50 компаний
+                Продолжить поиск до {discoveryTarget} лидов
               </Button>
             ) : null}
             {discovery ? (
@@ -267,7 +291,7 @@ export function LeadgenDashboard() {
                   Готовые компании{" "}
                   <strong>
                     {discovery.email_ready_companies ?? discovery.new_unique_emails ?? 0} из{" "}
-                    {discovery.email_ready_target ?? discovery.email_target ?? 50}
+                    {discovery.email_ready_target ?? discovery.email_target ?? 20}
                   </strong>
                 </span>
                 <span>Персональных ЛПР <strong>{discovery.contact_ready_people ?? 0}</strong></span>
@@ -284,15 +308,18 @@ export function LeadgenDashboard() {
               <h2>Формируем полный набор</h2>
               <p>
                 Готово {discoveryFound} из {discoveryTarget}. Промежуточные
-                карточки появятся только после завершения поиска 50/50.
+                карточки появятся после завершения целевого набора.
               </p>
             </section>
           ) : (
-            <EmailOutreachQueue
-              campaignDetails={campaignDetails}
-              campaignId={activeCampaignId}
-              key={`${activeCampaignId}:${campaignDetails?.leads.length ?? "stored"}`}
-            />
+            <div id="letters">
+              <span id="followups" />
+              <EmailOutreachQueue
+                campaignDetails={campaignDetails}
+                campaignId={activeCampaignId}
+                key={`${activeCampaignId}:${campaignDetails?.leads.length ?? "stored"}`}
+              />
+            </div>
           )}
         </section>
       ) : (
@@ -302,14 +329,16 @@ export function LeadgenDashboard() {
         </section>
       )}
 
-      <CampaignHistory
-        activeCampaignId={activeCampaignId}
-        campaigns={campaigns}
-        errorMessage={error}
-        isLoading={isHistoryLoading}
-        isOpeningCampaign={isOpening}
-        onOpenCampaign={handleOpenCampaign}
-      />
+      <div id="history">
+        <CampaignHistory
+          activeCampaignId={activeCampaignId}
+          campaigns={campaigns}
+          errorMessage={error}
+          isLoading={isHistoryLoading}
+          isOpeningCampaign={isOpening}
+          onOpenCampaign={handleOpenCampaign}
+        />
+      </div>
     </div>
   );
 }

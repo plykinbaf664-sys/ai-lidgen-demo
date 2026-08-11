@@ -6,7 +6,7 @@ import { getBusinessDayRange } from "@/lib/leadgen/business-day";
 import { calculateBatchCapacity, getNextScheduledAt } from "@/lib/leadgen/outreach-policy";
 import { getEmailDelayBounds, leadgenProductionConfig } from "@/lib/leadgen/production-config";
 import type { OutreachQueueEntry } from "@/lib/leadgen/types";
-import { mutateLocalTable, readLocalTable } from "@/lib/leadgen/local-database";
+import { getLocalDataRoot, mutateLocalTable, readLocalTable } from "@/lib/leadgen/local-database";
 import { rowToEntry, type QueueRow } from "@/lib/leadgen/outreach-storage";
 
 type LocalOutreachState = {
@@ -27,8 +27,7 @@ const DEFAULT_STATE: LocalOutreachState = {
 let writeChain = Promise.resolve();
 
 function dataRoot() {
-  const configured = process.env.LEADGEN_LOCAL_DATA_DIR?.trim();
-  return configured ? path.resolve(configured) : path.join(process.cwd(), ".leadgen-data");
+  return getLocalDataRoot();
 }
 
 function entriesRoot() {
@@ -40,13 +39,13 @@ function statePath() {
 }
 
 async function ensureStorage() {
-  await mkdir(entriesRoot(), { recursive: true });
+  await mkdir(entriesRoot(), { recursive: true, mode: 0o700 });
 }
 
 async function atomicWrite(target: string, value: unknown) {
   await ensureStorage();
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(temporary, JSON.stringify(value), "utf8");
+  await writeFile(temporary, JSON.stringify(value), { encoding: "utf8", mode: 0o600 });
   await rm(target, { force: true });
   await rename(temporary, target);
 }
@@ -381,8 +380,10 @@ export async function scheduleLocalApprovedBatch({
   return withWriteLock(async () => {
     const stored = await listLocalOutreachEntries();
     const daily = await getLocalDailySendStats();
-    const candidates = entries.filter(
+    const requestedIds = new Set(entries.map((entry) => entry.id));
+    const candidates = stored.filter(
       (entry) =>
+        requestedIds.has(entry.id) &&
         (entry.message_kind ?? "initial") === messageKind &&
         entry.status === "approved" &&
         (!campaignId || entry.campaign_id === campaignId),
@@ -428,7 +429,7 @@ export async function scheduleLocalApprovedBatch({
     }
 
     const blockedEmails = new Set(
-      [...entries, ...stored]
+      stored
         .filter(
           (entry) =>
             (entry.message_kind ?? "initial") === "initial" &&
@@ -437,7 +438,7 @@ export async function scheduleLocalApprovedBatch({
         .map((entry) => normalizeRecipientEmail(entry.email)),
     );
     const blockedCompanies = new Set(
-      [...entries, ...stored]
+      stored
         .filter(
           (entry) =>
             (entry.message_kind ?? "initial") === "initial" &&

@@ -1,5 +1,6 @@
-import type { CommercialSignalType, OutreachMessageMode } from "@/lib/leadgen/types";
-import { getVerticalProfile, inferVerticalId, type LeadgenVerticalId } from "@/lib/leadgen/verticals";
+import type { CommercialSignalType, OutreachMessageMode } from "./types.ts";
+import { getCampaignVerticalProfile, inferVerticalId, type LeadgenVerticalId } from "./verticals.ts";
+import type { ClientProfileSnapshot } from "./client-profile-types.ts";
 
 export type OutreachMicroValue = {
   type: "ideas" | "audit" | "scenarios" | "processes";
@@ -43,6 +44,7 @@ export type FirstEmailContext = {
   uniquenessKey?: string | null;
   batchBodies?: string[];
   verticalId?: LeadgenVerticalId;
+  clientProfileSnapshot?: ClientProfileSnapshot;
 };
 
 export type FirstEmailCopy = {
@@ -71,7 +73,7 @@ export type FirstEmailValidation = {
 type EmailIntent = "sales" | "support" | "launch" | "technology" | "expansion" | "inbound" | "general";
 
 export const INITIAL_OUTREACH_SIGNATURE =
-  "Александр Плыкин, Ai-архитектор\n+79629910514";
+  process.env.OUTREACH_SIGNATURE?.trim().replace(/\\n/g, "\n") || "Команда";
 
 function getFirstEmailContent(body: string): string {
   const trimmedBody = body.trimEnd();
@@ -281,7 +283,14 @@ function getValuePitch(
   intent: EmailIntent,
 ): string {
   const company = compactCompanyName(context.companyName);
-  const vertical = getVerticalProfile(context.verticalId ?? inferVerticalId(context.industry));
+  const vertical = getCampaignVerticalProfile(
+    context.verticalId ?? inferVerticalId(context.industry),
+    context.clientProfileSnapshot,
+  );
+  const clientValue = cleanText(
+    context.clientProfileSnapshot?.primaryValue ||
+      context.clientProfileSnapshot?.productDescription,
+  ).slice(0, 150);
   const outcomes: Record<EmailIntent, string> = {
     sales: "отвечать сразу, собирать задачу и передавать менеджеру уже квалифицированную заявку",
     support: "закрывать типовые вопросы, определять тему обращения и подключать человека только там, где он действительно нужен",
@@ -291,7 +300,7 @@ function getValuePitch(
     inbound: "моментально квалифицировать входящий запрос и отдавать менеджеру клиента с понятной задачей и приоритетом",
     general: "забирать первый контакт, повторяющиеся уточнения и передачу запроса ответственному сотруднику",
   };
-  return `Для ${company} собрал схему из трёх шагов: как ${outcomes[intent]}. В ${vertical.label.toLowerCase()} мы ${vertical.offer}. Покажу, где это встраивается в ваш процесс — без презентации и общих слов.`;
+  return `Для ${company} собрал схему из трёх шагов: как ${outcomes[intent]}. ${clientValue || `В ${vertical.label.toLowerCase()} мы ${vertical.offer}`}. Покажу, где это встраивается в ваш процесс — без презентации и общих слов.`;
 }
 
 function getMicroValue(intent: EmailIntent, context?: FirstEmailContext): OutreachMicroValue {
@@ -304,7 +313,12 @@ function getMicroValue(intent: EmailIntent, context?: FirstEmailContext): Outrea
     inbound: ["ответ в первые минуты", "квалификация запроса", "передача менеджеру с готовым контекстом"],
     general: ["разбор входящего запроса", "сбор недостающих данных", "передача ответственному с понятным контекстом"],
   };
-  const vertical = context ? getVerticalProfile(context.verticalId ?? inferVerticalId(context.industry)) : null;
+  const vertical = context
+    ? getCampaignVerticalProfile(
+        context.verticalId ?? inferVerticalId(context.industry),
+        context.clientProfileSnapshot,
+      )
+    : null;
   const items = vertical?.examples.slice(0, 3) ?? itemsByIntent[intent];
   return { type: "ideas", items, summary: `Три идеи: ${items.join("; ")}.` };
 }

@@ -1,0 +1,17 @@
+[Unit]
+Description=Compact Leadgen Client technical data
+
+[Service]
+Type=oneshot
+User=leadgen
+Group=leadgen
+WorkingDirectory=/opt/leadgen-client
+EnvironmentFile=/opt/leadgen-client/.env.production
+ExecStart=/usr/bin/node scripts/cleanup-client-data.mjs
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+ReadWritePaths=/var/lib/leadgen-client

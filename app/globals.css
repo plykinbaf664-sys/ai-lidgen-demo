@@ -145,6 +145,30 @@
   .campaign-history-row dl { grid-column: 1 / -1; grid-row: 2; }
 }
 
+/* Single-client MVP shell */
+.client-nav { position: sticky; top: 0; z-index: 20; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 18px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--surface) 94%, transparent); backdrop-filter: blur(12px); }
+.client-nav a, .client-nav button { padding: 8px 11px; border: 0; border-radius: 9px; background: transparent; color: var(--text-secondary); font: inherit; text-decoration: none; cursor: pointer; }
+.client-nav a:hover, .client-nav button:hover { background: var(--surface-muted); color: var(--text-primary); }
+.client-nav form { margin-left: auto; }
+.client-profile-panel { scroll-margin-top: 82px; }
+.client-profile-summary, .client-overview { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.client-profile-summary > div, .client-overview > div { display: grid; gap: 5px; padding: 13px; border: 1px solid var(--border); border-radius: 11px; background: var(--surface-muted); }
+.client-profile-summary span, .client-overview span { color: var(--text-secondary); font-size: 12px; }
+.client-profile-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.client-profile-form textarea { min-height: 86px; resize: vertical; }
+.profile-actions { display: flex; gap: 10px; grid-column: 1 / -1; }
+.login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: var(--background); }
+.login-card { width: min(420px, 100%); display: grid; gap: 18px; padding: 28px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: 0 24px 70px rgba(0,0,0,.18); }
+.login-card label { display: grid; gap: 7px; }
+.login-card input { min-height: 44px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--background); color: var(--text-primary); }
+#new-search, #leads, #letters, #followups, #history { scroll-margin-top: 82px; }
+
+@media (max-width: 720px) {
+  .client-profile-form { grid-template-columns: 1fr; }
+  .client-nav { position: static; }
+  .client-nav form { margin-left: 0; }
+}
+
 @media (max-width: 640px) {
   .leadgen-app { width: min(100% - 20px, 1540px); padding-top: 18px; }
   .leadgen-product-header { gap: 18px; }
@@ -2645,3 +2669,22 @@ details.outreach-missing-contacts > .outreach-lead-cards {
   .leadgen-app .outreach-queue-layout { grid-template-areas: "dashboard" "list"; grid-template-columns: minmax(0, 1fr); }
   .leadgen-app .outreach-delivery-dashboard { position: static; }
 }
+.icp-upload {
+  display: grid;
+  gap: 14px;
+}
+
+.icp-field-state {
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.icp-field-state.auto { color: #166534; background: #dcfce7; }
+.icp-field-state.clarify { color: #92400e; background: #fef3c7; }
+.icp-field-state.missing { color: #991b1b; background: #fee2e2; }

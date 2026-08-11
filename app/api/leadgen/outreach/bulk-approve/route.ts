@@ -1,12 +1,15 @@
+import { isValidEntityId, requirePrivateApi } from "@/lib/security/api-access";
 import { NextResponse } from "next/server";
 import { bulkApproveOutreach } from "@/lib/leadgen/outreach-storage";
-import { formatUnknownError } from "@/lib/leadgen/error-format";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 import { getOutreachSummary } from "@/lib/leadgen/outreach-summary";
 
 export async function POST(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const body = (await request.json()) as { campaignId?: string; execute?: boolean };
-    if (!body.campaignId) return NextResponse.json({ success: false, error: "campaignId обязателен" }, { status: 400 });
+    if (!isValidEntityId(body.campaignId)) return NextResponse.json({ success: false, error: "campaignId обязателен" }, { status: 400 });
     const result = await bulkApproveOutreach(
       body.campaignId,
       body.execute === true,
@@ -20,6 +23,6 @@ export async function POST(request: Request) {
           : undefined,
     });
   } catch (error) {
-    return NextResponse.json({ success: false, error: formatUnknownError(error) }, { status: 500 });
+    return NextResponse.json({ success: false, error: formatPublicError(error) }, { status: 500 });
   }
 }

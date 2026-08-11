@@ -1,3 +1,4 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
 import { NextResponse } from "next/server";
 import { leadgenConfig } from "@/lib/leadgen/config";
 import { buildSignalQueries } from "@/lib/leadgen/signals/query-builder";
@@ -35,6 +36,8 @@ function readMarket(value: string | null): SignalSearchMarket {
 }
 
 export async function GET(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   const url = new URL(request.url);
   const signal = url.searchParams.get("signal");
 

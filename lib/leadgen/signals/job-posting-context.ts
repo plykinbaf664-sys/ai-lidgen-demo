@@ -1,3 +1,4 @@
+import { safePublicFetch } from "@/lib/security/safe-public-fetch";
 import type { SearchResult } from "@/lib/leadgen/search/search-provider";
 
 type JobPostingJsonLd = {
@@ -108,13 +109,13 @@ export async function enrichJobPostingSearchResult(
   }
 
   try {
-    const response = await fetch(result.url, {
+    const response = await safePublicFetch(result.url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (compatible; LeadgenOS/1.0)",
         Accept: "text/html",
       },
       signal: AbortSignal.timeout(10_000),
-    });
+    }, { timeoutMs: 10_000, maxResponseBytes: 1_000_000 });
 
     if (!response.ok) {
       return result;

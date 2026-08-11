@@ -1,8 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/leadgen/outreach/process",
-      "schedule": "* * * * *"
-    }
-  ]
-}
+{}

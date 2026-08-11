@@ -1,3 +1,4 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
 import { NextResponse } from "next/server";
 import {
   auditSentMailboxArchive,
@@ -6,6 +7,8 @@ import {
 } from "@/lib/leadgen/sent-mail-archive";
 
 export async function POST(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   const secret =
     process.env.OUTREACH_PROCESSOR_SECRET ?? process.env.CRON_SECRET;
   const encodedSecret = secret
@@ -38,11 +41,11 @@ export async function POST(request: Request) {
       success: true,
       ...(await backfillSentMailboxCopies()),
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: "Не удалось выполнить служебную операцию.",
       },
       { status: 500 },
     );

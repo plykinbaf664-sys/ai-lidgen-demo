@@ -1,4 +1,5 @@
-import { leadgenConfig } from "@/lib/leadgen/config";
+import { leadgenConfig } from "./config.ts";
+import { splitProfileTerms, type ClientProfileSnapshot } from "./client-profile-types.ts";
 
 export type LeadgenVerticalId =
   | "real_estate" | "manufacturing" | "medicine" | "dentistry"
@@ -57,6 +58,64 @@ export function getVerticalIcp(value?: string | null) {
     industries: { en: vertical.industries, ru: vertical.industries },
     companyTypes: { en: vertical.companyTypes, ru: vertical.companyTypes },
     keywords: { en: [...vertical.signalTerms, ...vertical.vocabulary], ru: [...vertical.signalTerms, ...vertical.vocabulary] },
+  };
+}
+
+export function getCampaignVerticalProfile(
+  verticalId?: string | null,
+  snapshot?: ClientProfileSnapshot | null,
+): LeadgenVerticalProfile {
+  const vertical = getVerticalProfile(verticalId);
+  if (!snapshot) return vertical;
+  const customRoles = splitProfileTerms(snapshot.desiredRoles);
+  const customPains = splitProfileTerms(snapshot.targetProblems);
+  const customProcesses = splitProfileTerms(snapshot.solvedProcesses);
+  const customIndustries = splitProfileTerms(
+    [snapshot.segmentLabel, snapshot.segmentDescription, snapshot.industry, snapshot.targetCustomer]
+      .filter(Boolean)
+      .join(","),
+  );
+  return {
+    ...vertical,
+    label: snapshot.segmentLabel || vertical.label,
+    industries: customIndustries.length ? customIndustries : vertical.industries,
+    companyTypes: splitProfileTerms(snapshot.companyType).length
+      ? splitProfileTerms(snapshot.companyType)
+      : vertical.companyTypes,
+    signalTerms: [...new Set([...customPains, ...customProcesses, ...vertical.signalTerms])].slice(0, 24),
+    targetRoles: customRoles.length ? customRoles : vertical.targetRoles,
+    offer: snapshot.primaryValue || snapshot.productDescription || vertical.offer,
+    pains: customPains.length ? customPains : vertical.pains,
+    examples: customProcesses.length ? customProcesses : vertical.examples,
+    vocabulary: [...new Set([...customIndustries, ...customProcesses])].slice(0, 24),
+  };
+}
+
+export function getCampaignIcp(
+  verticalId?: string | null,
+  snapshot?: ClientProfileSnapshot | null,
+) {
+  const vertical = getCampaignVerticalProfile(verticalId, snapshot);
+  const contextTerms = snapshot
+    ? splitProfileTerms([
+        snapshot.productName,
+        snapshot.productDescription,
+        snapshot.primaryValue,
+        snapshot.targetProblems,
+        snapshot.solvedProcesses,
+        snapshot.additionalContext,
+      ].filter(Boolean).join(","))
+    : [];
+  return {
+    ...getVerticalIcp(verticalId),
+    label: snapshot?.targetCustomer ? `ICP: ${snapshot.targetCustomer}` : `ICP: ${vertical.label}`,
+    note: snapshot?.primaryValue || `${vertical.offer}. Источники: ${vertical.sources.join(", ")}.`,
+    industries: { en: vertical.industries, ru: vertical.industries },
+    companyTypes: { en: vertical.companyTypes, ru: vertical.companyTypes },
+    keywords: {
+      en: [...new Set([...vertical.signalTerms, ...vertical.vocabulary, ...contextTerms])],
+      ru: [...new Set([...vertical.signalTerms, ...vertical.vocabulary, ...contextTerms])],
+    },
   };
 }
 

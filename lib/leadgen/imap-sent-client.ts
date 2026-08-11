@@ -1,4 +1,5 @@
 import tls from "node:tls";
+import { assertClientMailboxIsolation } from "./mailbox-isolation";
 
 type ImapConfig = {
   host: string;
@@ -36,11 +37,12 @@ function getImapConfig(): ImapConfig {
       ? `imap.${smtpHost.slice("smtp.".length)}`
       : "imap.yandex.com");
   const port = Number(process.env.IMAP_PORT?.trim() || "993");
-  const user = process.env.SMTP_USER?.trim();
-  const password = process.env.SMTP_PASSWORD;
+  const user = process.env.IMAP_USER?.trim();
+  const password = process.env.IMAP_PASSWORD;
   if (!host || !user || !password || !Number.isInteger(port)) {
     throw new Error("IMAP-конфигурация неполная.");
   }
+  assertClientMailboxIsolation(user);
   return { host, port, user, password };
 }
 

@@ -190,6 +190,7 @@ export async function reprocessLatestCampaignEmailDiscovery({
         signalDetail: signal?.signal_detail,
         signalSourceUrl: signal?.source_url ?? null,
         signalConfidence: signal?.confidence_score ?? null,
+        clientProfileSnapshot: details.campaign.client_profile_snapshot,
       });
       const contact: LeadgenContact = {
         id: createRecordId("contact", lead.id, "email-reprocess", email.email),

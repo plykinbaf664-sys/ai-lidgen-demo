@@ -1,3 +1,5 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 import { NextResponse } from "next/server";
 import {
   createLeadgenSearchProvider,
@@ -46,14 +48,12 @@ function readMarketParam(value: string | null): SignalSearchMarket | undefined {
 }
 
 function formatRouteError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
+  return formatPublicError(error, "Не удалось выполнить тест signal pipeline.");
 }
 
 export async function GET(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const url = new URL(request.url);
     const signal = url.searchParams.get("signal");

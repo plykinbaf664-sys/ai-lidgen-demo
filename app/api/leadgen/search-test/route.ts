@@ -1,3 +1,5 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 import { NextResponse } from "next/server";
 import {
   createLeadgenSearchProvider,
@@ -5,19 +7,17 @@ import {
 } from "@/lib/leadgen/search/leadgen-search-provider";
 
 function formatRouteError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
+  return formatPublicError(error, "Не удалось выполнить тестовый поиск.");
 }
 
 export async function GET(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const url = new URL(request.url);
     const query = url.searchParams.get("query")?.trim();
 
-    if (!query) {
+    if (!query || query.length > 500) {
       return NextResponse.json(
         {
           success: false,

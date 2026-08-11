@@ -2,15 +2,49 @@ type ErrorRecord = Record<string, unknown>;
 
 const sensitiveKeyPattern = /password|secret|token|authorization|api[_-]?key|credential/i;
 
+export class PublicError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status = 400) {
+    super(message);
+    this.name = "PublicError";
+    this.status = status;
+  }
+}
+
 function isRecord(value: unknown): value is ErrorRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function cleanText(value: string) {
-  return value
+  let cleaned = value;
+  for (const name of [
+    "AUTH_PASSWORD_HASH",
+    "AUTH_SESSION_SECRET",
+    "OPENAI_API_KEY",
+    "TAVILY_API_KEY",
+    "YANDEX_SEARCH_API_KEY",
+    "SMTP_PASSWORD",
+    "IMAP_PASSWORD",
+    "OUTREACH_PROCESSOR_SECRET",
+    "CRON_SECRET",
+  ]) {
+    const secret = process.env[name];
+    if (secret && secret.length >= 6) cleaned = cleaned.split(secret).join("[redacted]");
+  }
+  return cleaned
+    .replace(/\b(?:sk|sess|key)-[A-Za-z0-9_-]{12,}\b/g, "[redacted]")
+    .replace(/(https?:\/\/)[^\s/@:]+:[^\s/@]+@/gi, "$1[redacted]@")
     .replace(/(password|secret|token|authorization|api[_-]?key)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+export function formatPublicError(
+  error: unknown,
+  fallback = "Не удалось выполнить операцию.",
+) {
+  return error instanceof PublicError ? error.message.slice(0, 500) : fallback;
 }
 
 function collect(value: unknown, depth: number, seen: Set<unknown>): string[] {

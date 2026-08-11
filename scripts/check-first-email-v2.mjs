@@ -53,7 +53,7 @@ for (const [index, copy] of copies.entries()) {
   assert.match(copy.body, /15[-\s]?минут|15\s+минут/i);
   assert.match(copy.body, /покаж|разбор|обсуд/i);
   assert.equal(copy.quality.call_relevance, 10);
-  assert.match(copy.body, /Александр Плыкин, Ai-архитектор\n\+79629910514$/);
+  assert.equal(copy.body.endsWith(INITIAL_OUTREACH_SIGNATURE), true);
 }
 
 assert.match(copies[0].blocks.cta, /за 15 минут — обсудим/i);

@@ -1,9 +1,10 @@
+import { isValidEntityId, requirePrivateApi } from "@/lib/security/api-access";
 import { after, NextResponse } from "next/server";
 import {
   getDailySendStats,
   scheduleApprovedBatch,
 } from "@/lib/leadgen/outreach-storage";
-import { formatUnknownError } from "@/lib/leadgen/error-format";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 import { leadgenProductionConfig } from "@/lib/leadgen/production-config";
 import { runOutreachProcessorIteration } from "@/lib/leadgen/outreach-scheduler";
 import {
@@ -17,6 +18,8 @@ import { runLocalOutreachProcessorIteration } from "@/lib/leadgen/local-outreach
 import type { OutreachQueueEntry } from "@/lib/leadgen/types";
 
 export async function GET(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   if (getOutreachDeliveryStorageMode() !== "local") {
     return NextResponse.json(
       { success: false, error: "Локальная очередь отключена." },
@@ -29,11 +32,6 @@ export async function GET(request: Request) {
     getLocalDailySendStats(),
     getLocalOutreachOperationalState(campaignId),
   ]);
-  if (entries.some((entry) => entry.status === "queued")) {
-    after(async () => {
-      await runLocalOutreachProcessorIteration();
-    });
-  }
   return NextResponse.json({
     success: true,
     storage_mode: "local",
@@ -49,6 +47,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const body = (await request.json()) as {
       campaignId?: string | null;
@@ -76,6 +76,15 @@ export async function POST(request: Request) {
           },
           { status: 400 },
         );
+      }
+      if (
+        body.entries.length > leadgenProductionConfig.emailBatchSendLimit ||
+        body.entries.some((entry) => !entry || !isValidEntityId(entry.id)) ||
+        (body.campaignId != null && !isValidEntityId(body.campaignId)) ||
+        !Number.isFinite(Number(body.sentToday ?? 0)) ||
+        Number(body.sentToday ?? 0) < 0
+      ) {
+        return NextResponse.json({ success: false, error: "Некорректные данные batch." }, { status: 400 });
       }
       const scheduled = await scheduleLocalApprovedBatch({
         entries: body.entries,
@@ -133,7 +142,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: false,
-        error: formatUnknownError(error),
+        error: formatPublicError(error),
       },
       { status: 500 },
     );

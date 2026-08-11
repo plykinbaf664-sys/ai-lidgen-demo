@@ -1,6 +1,7 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
 import { NextResponse } from "next/server";
 import { auditProductionConsistency, repairProductionConsistency } from "@/lib/leadgen/production-consistency";
-import { formatUnknownError } from "@/lib/leadgen/error-format";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 
 function authorized(request: Request) {
   const secret = process.env.OUTREACH_PROCESSOR_SECRET ?? process.env.CRON_SECRET;
@@ -10,21 +11,25 @@ function authorized(request: Request) {
     request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     return NextResponse.json({ success: true, audit: await auditProductionConsistency() });
   } catch (error) {
-    return NextResponse.json({ success: false, error: formatUnknownError(error) }, { status: 500 });
+    return NextResponse.json({ success: false, error: formatPublicError(error) }, { status: 500 });
   }
 }
 
 export async function POST(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   if (!authorized(request)) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
   try {
     return NextResponse.json({ success: true, result: await repairProductionConsistency() });
   } catch (error) {
-    return NextResponse.json({ success: false, error: formatUnknownError(error) }, { status: 500 });
+    return NextResponse.json({ success: false, error: formatPublicError(error) }, { status: 500 });
   }
 }

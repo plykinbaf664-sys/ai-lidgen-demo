@@ -16,6 +16,13 @@ export type IcpFitResult = {
   breakdown: IcpFitBreakdown;
 };
 
+export type IcpScoringContext = {
+  businessTerms?: string[];
+  commercialTerms?: string[];
+  painTerms?: string[];
+  exclusionTerms?: string[];
+};
+
 const businessFitTerms = [
   "retail",
   "ecommerce",
@@ -294,7 +301,10 @@ function calculateTermScore(matches: string[], pointsPerMatch: number, cap: numb
   return Math.min(matches.length * pointsPerMatch, cap);
 }
 
-export function scoreIcpFit(evidence: EvidenceResult[]): IcpFitResult {
+export function scoreIcpFit(
+  evidence: EvidenceResult[],
+  context?: IcpScoringContext,
+): IcpFitResult {
   if (evidence.length === 0) {
     return {
       icp_fit_score: 0,
@@ -312,10 +322,10 @@ export function scoreIcpFit(evidence: EvidenceResult[]): IcpFitResult {
   }
 
   const text = getEvidenceText(evidence);
-  const matchedBusinessTerms = unique(findMatches(text, businessFitTerms));
-  const matchedCommercialTerms = unique(findMatches(text, commercialFitTerms));
-  const matchedPainTerms = unique(findMatches(text, painFitTerms));
-  const matchedExclusionTerms = unique(findMatches(text, exclusionRiskTerms));
+  const matchedBusinessTerms = unique(findMatches(text, context?.businessTerms?.length ? context.businessTerms : businessFitTerms));
+  const matchedCommercialTerms = unique(findMatches(text, context?.commercialTerms?.length ? context.commercialTerms : commercialFitTerms));
+  const matchedPainTerms = unique(findMatches(text, context?.painTerms?.length ? context.painTerms : painFitTerms));
+  const matchedExclusionTerms = unique(findMatches(text, context ? context.exclusionTerms ?? [] : exclusionRiskTerms));
   const businessFit = calculateTermScore(matchedBusinessTerms, 9, 36);
   const commercialFit = calculateTermScore(matchedCommercialTerms, 7, 28);
   const painFit = calculateTermScore(matchedPainTerms, 7, 35);

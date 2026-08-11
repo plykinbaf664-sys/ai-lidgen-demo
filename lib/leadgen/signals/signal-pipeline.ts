@@ -1,5 +1,5 @@
-import { leadgenConfig } from "@/lib/leadgen/config";
 import { leadgenProductionConfig } from "@/lib/leadgen/production-config";
+import { splitProfileTerms, type ClientProfileSnapshot } from "@/lib/leadgen/client-profile-types";
 import type { SearchProvider } from "@/lib/leadgen/search/search-provider";
 import type { EvidenceResult } from "@/lib/leadgen/signals/evidence-collector";
 import { collectSignalEvidence } from "@/lib/leadgen/signals/evidence-collector";
@@ -12,7 +12,8 @@ import { buildSignalQueries } from "@/lib/leadgen/signals/query-builder";
 import { buildLeadCandidates } from "@/lib/leadgen/signals/lead-candidate-builder";
 import { enrichJobPostingSearchResult } from "@/lib/leadgen/signals/job-posting-context";
 import type { LeadCandidate, SignalType } from "@/lib/leadgen/types";
-import { getVerticalIcp, type LeadgenVerticalId } from "@/lib/leadgen/verticals";
+import { getCampaignIcp, type LeadgenVerticalId } from "@/lib/leadgen/verticals";
+import type { IcpScoringContext } from "@/lib/leadgen/signals/icp-fit-scorer";
 
 export type SignalPipelineStoppedReason =
   | "target_reached"
@@ -44,6 +45,7 @@ export type RunSignalPipelineInput = {
   pageOffset?: number;
   market?: SignalSearchMarket;
   verticalId?: LeadgenVerticalId;
+  clientProfileSnapshot?: ClientProfileSnapshot;
   deadlineAt?: number;
 };
 
@@ -262,6 +264,7 @@ function rememberCandidateMetadata({
   candidateQueryLanguageByKey,
   candidateQueryAngleByKey,
   candidateSourceCountryHintByKey,
+  scoringContext,
 }: {
   queryEvidence: SignalPipelineEvidenceResult[];
   query: SignalQuery;
@@ -271,8 +274,9 @@ function rememberCandidateMetadata({
   candidateQueryLanguageByKey: Map<string, SignalQuery["query_language"]>;
   candidateQueryAngleByKey: Map<string, SignalQuery["query_angle"]>;
   candidateSourceCountryHintByKey: Map<string, string | null>;
+  scoringContext?: IcpScoringContext;
 }) {
-  const queryCandidates = buildLeadCandidates(queryEvidence).candidates;
+  const queryCandidates = buildLeadCandidates(queryEvidence, scoringContext).candidates;
 
   for (const candidate of queryCandidates) {
     const key = getLeadCandidateKey(candidate);
@@ -339,6 +343,7 @@ export async function runSignalPipeline({
   pageOffset = 0,
   market = "mixed",
   verticalId,
+  clientProfileSnapshot,
   deadlineAt,
 }: RunSignalPipelineInput): Promise<SignalPipelineResult> {
   const safeTargetCandidates = applyLimit(
@@ -356,8 +361,19 @@ export async function runSignalPipeline({
     DEFAULT_MAX_RESULTS_PER_QUERY,
     MAX_RESULTS_PER_QUERY_CAP,
   );
+  const icp = getCampaignIcp(verticalId, clientProfileSnapshot);
+  const scoringContext: IcpScoringContext | undefined = clientProfileSnapshot
+    ? {
+        businessTerms: [...icp.industries.ru, ...icp.companyTypes.ru, clientProfileSnapshot.targetCustomer],
+        commercialTerms: splitProfileTerms(
+          [clientProfileSnapshot.productName, clientProfileSnapshot.primaryValue, clientProfileSnapshot.solvedProcesses].join(","),
+        ),
+        painTerms: splitProfileTerms(clientProfileSnapshot.targetProblems),
+        exclusionTerms: splitProfileTerms(clientProfileSnapshot.exclusions),
+      }
+    : undefined;
   const queries = buildSignalQueries({
-    icp: getVerticalIcp(verticalId),
+    icp,
     signalType,
     maxQueries: safeMaxQueries,
     market,
@@ -411,7 +427,7 @@ export async function runSignalPipeline({
       ...collectSignalEvidence({
         result,
         signalType,
-        icp: leadgenConfig.icp,
+        icp,
       }),
       market: query.market,
       query_language: query.query_language,
@@ -430,9 +446,10 @@ export async function runSignalPipeline({
       candidateQueryLanguageByKey,
       candidateQueryAngleByKey,
       candidateSourceCountryHintByKey,
+      scoringContext,
       });
 
-      const allCandidates = buildLeadCandidates(evidenceResults).candidates;
+      const allCandidates = buildLeadCandidates(evidenceResults, scoringContext).candidates;
       const isLastQuery =
         queryIndex === queries.length - 1 && page === safeMaxPages - 1;
 
@@ -464,7 +481,7 @@ export async function runSignalPipeline({
 
   if (candidates.length < safeTargetCandidates) {
     candidates = selectCandidatesWithDiversity({
-      candidates: buildLeadCandidates(evidenceResults).candidates,
+      candidates: buildLeadCandidates(evidenceResults, scoringContext).candidates,
       candidateAngleByKey,
       candidateMarketByKey,
       targetCandidates: safeTargetCandidates,

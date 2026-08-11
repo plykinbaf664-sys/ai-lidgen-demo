@@ -1,3 +1,4 @@
+import { safePublicFetch } from "@/lib/security/safe-public-fetch";
 import { createLeadgenSearchProvider } from "@/lib/leadgen/search/leadgen-search-provider";
 import type {
   SearchProvider,
@@ -204,12 +205,12 @@ async function fetchOfficialText(url: string): Promise<string | null> {
   const timeoutId = setTimeout(() => controller.abort(), 7000);
 
   try {
-    const response = await fetch(url, {
+    const response = await safePublicFetch(url, {
       headers: {
         "User-Agent": "LeadgenOS/1.0 contact discovery",
       },
       signal: controller.signal,
-    });
+    }, { timeoutMs: 7_000, maxResponseBytes: 750_000 });
 
     if (!response.ok) {
       return null;

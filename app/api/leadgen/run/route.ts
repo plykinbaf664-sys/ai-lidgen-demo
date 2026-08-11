@@ -1,5 +1,6 @@
+import { isBoundedString, isValidEntityId, requirePrivateApi } from "@/lib/security/api-access";
 import { NextResponse } from "next/server";
-import { formatUnknownError } from "@/lib/leadgen/error-format";
+import { formatPublicError, PublicError } from "@/lib/leadgen/error-format";
 import {
   getCompanyIdentity,
   getDuplicateReason,
@@ -60,6 +61,9 @@ import type {
   PersonaSearchStatus,
 } from "@/lib/leadgen/types";
 import { isLeadgenVerticalId } from "@/lib/leadgen/verticals";
+import { createClientProfileSnapshot } from "@/lib/leadgen/client-profile";
+import { getSegmentDefinition } from "@/lib/leadgen/segments";
+import { recordDiagnostic } from "@/lib/leadgen/diagnostics";
 
 type RunLeadgenRequestBody = Partial<CampaignInput> & {
   searchProvider?: string;
@@ -268,7 +272,7 @@ function getPersonaSearchStatus(
 }
 
 function formatRouteError(error: unknown): string {
-  return formatUnknownError(error, "Не удалось выполнить поиск лидов.");
+  return formatPublicError(error, "Не удалось выполнить поиск лидов.");
 }
 
 async function readRunRequest(request: Request): Promise<{
@@ -279,6 +283,28 @@ async function readRunRequest(request: Request): Promise<{
   campaignId: string | null;
 }> {
   const body = (await request.json().catch(() => ({}))) as RunLeadgenRequestBody;
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new PublicError("Некорректный формат кампании.");
+  for (const [value, max] of [
+    [body.name, 200],
+    [body.requestedBy, 200],
+    [body.segmentId, 80],
+    [body.segmentDescription, 2_000],
+  ] as Array<[unknown, number]>) {
+    if (value !== undefined && !isBoundedString(value, max, true)) throw new PublicError("Некорректные текстовые поля кампании.");
+  }
+  if (body.campaignId !== undefined && body.campaignId !== null && !isValidEntityId(body.campaignId)) {
+    throw new PublicError("Некорректный campaignId.");
+  }
+  if (body.targetCount !== undefined && ![5, 10, 20].includes(Number(body.targetCount))) {
+    throw new PublicError("Количество готовых лидов: 5, 10 или 20.");
+  }
+  if (body.dryRun !== undefined && typeof body.dryRun !== "boolean") throw new PublicError("Некорректный dryRun.");
+  if (body.searchProvider !== undefined && !isLeadgenSearchProviderMode(body.searchProvider)) {
+    throw new PublicError("Некорректный search provider.");
+  }
+  if (body.market !== undefined && !["global", "mixed", "ru"].includes(body.market)) {
+    throw new PublicError("Некорректный market.");
+  }
   const market =
     body.market === "global" || body.market === "mixed" || body.market === "ru"
       ? body.market
@@ -294,6 +320,14 @@ async function readRunRequest(request: Request): Promise<{
         { source: "api.run.body.requestedBy" },
       ),
       verticalId: isLeadgenVerticalId(body.verticalId) ? body.verticalId : undefined,
+      segmentId: typeof body.segmentId === "string" ? body.segmentId.trim() : undefined,
+      segmentDescription:
+        typeof body.segmentDescription === "string"
+          ? normalizeLeadgenText(body.segmentDescription.trim(), { source: "api.run.body.segmentDescription" })
+          : undefined,
+      targetCount: [5, 10, 20].includes(Number(body.targetCount))
+        ? Number(body.targetCount)
+        : 20,
     },
     searchProviderMode: isLeadgenSearchProviderMode(body.searchProvider)
       ? body.searchProvider
@@ -307,6 +341,8 @@ async function readRunRequest(request: Request): Promise<{
   };
 }
 export async function POST(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const {
       campaignInput: requestedCampaignInput,
@@ -326,13 +362,26 @@ export async function POST(request: Request) {
         { status: 404 },
       );
     }
-    const campaignInput = existingCampaign
+    const newSegment = getSegmentDefinition(requestedCampaignInput.segmentId);
+    const campaignInput: CampaignInput = existingCampaign
       ? {
           name: existingCampaign.campaign.name,
           requestedBy: existingCampaign.campaign.requested_by,
           verticalId: existingCampaign.campaign.vertical_id,
+          segmentId: existingCampaign.campaign.segment_id,
+          segmentDescription: existingCampaign.campaign.segment_description,
+          targetCount: existingCampaign.campaign.target_count ?? 20,
+          clientProfileSnapshot: existingCampaign.campaign.client_profile_snapshot,
         }
-      : requestedCampaignInput;
+      : {
+          ...requestedCampaignInput,
+          verticalId: newSegment.verticalId ?? requestedCampaignInput.verticalId,
+          segmentId: newSegment.id,
+          clientProfileSnapshot: await createClientProfileSnapshot({
+            segmentId: newSegment.id,
+            segmentDescription: requestedCampaignInput.segmentDescription,
+          }),
+        };
     const storedContactReadyEmails = new Set(
       (existingCampaign?.contacts ?? [])
         .filter(isContactReadyPerson)
@@ -356,12 +405,12 @@ export async function POST(request: Request) {
           new_unique_emails: storedConfirmedEmails,
           new_unique_companies: storedConfirmedEmails,
           email_ready_companies: storedConfirmedEmails,
-          email_ready_target: leadgenProductionConfig.campaignEmailTarget,
+          email_ready_target: campaignInput.targetCount ?? 20,
           contact_ready_people: storedContactReadyEmails,
-          target_reached: storedConfirmedEmails >= leadgenProductionConfig.campaignEmailTarget,
+          target_reached: storedConfirmedEmails >= (campaignInput.targetCount ?? 20),
         }
       : null;
-    const leadTarget = leadgenProductionConfig.campaignEmailTarget;
+    const leadTarget = campaignInput.targetCount ?? 20;
     const alreadyFound = existingCampaign
       ? storedConfirmedEmails
       : previousStats?.email_ready_companies ?? previousStats?.new_unique_emails ?? 0;
@@ -383,7 +432,10 @@ export async function POST(request: Request) {
       searchProvider: createLeadgenSearchProvider({
         mode: searchProviderMode,
       }),
-      leadTarget: leadgenProductionConfig.campaignCompanyLimit,
+      leadTarget: Math.min(
+        leadgenProductionConfig.campaignCompanyLimit,
+        Math.max(leadTarget * 3, leadTarget),
+      ),
       emailReadyTarget: passTarget,
       market,
       knownCompanyIdentities,
@@ -475,6 +527,11 @@ export async function POST(request: Request) {
       await syncOutreachQueue(enrichedResult.campaign.id);
     }
 
+    await recordDiagnostic(
+      "discovery",
+      "ok",
+      `campaign=${enrichedResult.campaign.id}; ready=${aggregateStats.new_unique_emails ?? 0}; target=${leadTarget}`,
+    );
     return NextResponse.json({
       success: true,
       pipeline_run_id: enrichedResult.campaign.pipeline_run_id,
@@ -557,6 +614,7 @@ export async function POST(request: Request) {
         : undefined,
     });
   } catch (error) {
+    await recordDiagnostic("discovery", "error", formatRouteError(error)).catch(() => undefined);
     return NextResponse.json(
       {
         success: false,

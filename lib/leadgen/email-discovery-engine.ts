@@ -1,4 +1,5 @@
 import { resolveMx } from "node:dns/promises";
+import { safePublicFetch } from "@/lib/security/safe-public-fetch";
 import type { SearchProvider, SearchResult } from "@/lib/leadgen/search/search-provider";
 import {
   extractPublicEmailsDetailed,
@@ -206,8 +207,7 @@ async function fetchPage(url: string, depth: number): Promise<CrawledPage> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(url, {
-      redirect: "follow",
+    const response = await safePublicFetch(url, {
       headers: {
         accept:
           "text/html,application/xhtml+xml,application/xml,text/plain;q=0.9,*/*;q=0.2",
@@ -215,7 +215,7 @@ async function fetchPage(url: string, depth: number): Promise<CrawledPage> {
         "user-agent": "Mozilla/5.0 (compatible; LeadgenOS/1.0; email-discovery)",
       },
       signal: controller.signal,
-    });
+    }, { timeoutMs: FETCH_TIMEOUT_MS, maxResponseBytes: 1_000_000, maxRedirects: 3 });
     const contentType = response.headers.get("content-type");
     const html = response.ok ? (await response.text()).slice(0, 350_000) : "";
     return {

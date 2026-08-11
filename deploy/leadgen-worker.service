@@ -1,0 +1,17 @@
+[Unit]
+Description=Process one Leadgen Client queue item
+After=leadgen-client.service
+
+[Service]
+Type=oneshot
+User=leadgen
+Group=leadgen
+WorkingDirectory=/opt/leadgen-client
+EnvironmentFile=/opt/leadgen-client/.env.production
+ExecStart=/usr/bin/node scripts/process-outreach-once.mjs
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077

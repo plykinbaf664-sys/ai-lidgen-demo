@@ -1,12 +1,15 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getCampaignDetails,
   getCampaignDetailsByPipelineRunId,
 } from "@/lib/leadgen/storage";
 import { normalizeLeadgenStrings } from "@/lib/leadgen/text-normalization";
-import { formatUnknownError } from "@/lib/leadgen/error-format";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 
 export async function GET(request: NextRequest) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const pipelineRunId = request.nextUrl.searchParams.get("pipelineRunId");
     const id = request.nextUrl.searchParams.get("id");
@@ -35,7 +38,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: formatUnknownError(error, "Не удалось загрузить кампанию."),
+        error: formatPublicError(error, "Не удалось загрузить кампанию."),
       },
       { status: 500 },
     );

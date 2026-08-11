@@ -12,10 +12,21 @@ const writeChains = new Map<string, Promise<void>>();
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 
-function dataRoot() {
+export function getLocalDataRoot() {
   const configured = process.env.LEADGEN_LOCAL_DATA_DIR?.trim();
-  const root = configured ? path.resolve(configured) : path.join(process.cwd(), ".leadgen-data");
-  return path.join(root, "tables");
+  const root = configured
+    ? path.resolve(configured)
+    : path.join(process.cwd(), ".client-leadgen-data");
+  const filesystemRoot = path.parse(root).root;
+  const forbidden = [path.join(process.cwd(), "public"), path.join(process.cwd(), ".next")];
+  if (root === filesystemRoot || forbidden.some((item) => root === item || root.startsWith(`${item}${path.sep}`))) {
+    throw new Error("LEADGEN_LOCAL_DATA_DIR points to an unsafe location.");
+  }
+  return root;
+}
+
+function dataRoot() {
+  return path.join(getLocalDataRoot(), "tables");
 }
 
 function safeTableName(table: string) {
@@ -27,12 +38,16 @@ function tablePath(table: string) {
   return path.join(dataRoot(), `${safeTableName(table)}.json.gz`);
 }
 
+function backupTablePath(table: string) {
+  return `${tablePath(table)}.bak`;
+}
+
 function legacyTablePath(table: string) {
   return path.join(dataRoot(), `${safeTableName(table)}.json`);
 }
 
 async function ensureRoot() {
-  await mkdir(dataRoot(), { recursive: true });
+  await mkdir(dataRoot(), { recursive: true, mode: 0o700 });
 }
 
 export async function readLocalTable<T extends LocalRow = LocalRow>(table: string): Promise<T[]> {
@@ -40,7 +55,12 @@ export async function readLocalTable<T extends LocalRow = LocalRow>(table: strin
   try {
     let serialized: string;
     try {
-      serialized = (await gunzipAsync(await readFile(tablePath(table)))).toString("utf8");
+      try {
+        serialized = (await gunzipAsync(await readFile(tablePath(table)))).toString("utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        serialized = (await gunzipAsync(await readFile(backupTablePath(table)))).toString("utf8");
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       serialized = await readFile(legacyTablePath(table), "utf8");
@@ -63,12 +83,19 @@ export async function readLocalTable<T extends LocalRow = LocalRow>(table: strin
 async function atomicWriteTable(table: string, rows: LocalRow[]) {
   await ensureRoot();
   const target = tablePath(table);
+  const backup = backupTablePath(table);
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
   const compactedRows = compactLocalTableRows(table, rows);
   rows.splice(0, rows.length, ...compactedRows);
-  await writeFile(temporary, await gzipAsync(JSON.stringify(compactedRows), { level: 9 }));
-  await rm(target, { force: true });
+  await writeFile(temporary, await gzipAsync(JSON.stringify(compactedRows), { level: 9 }), { mode: 0o600 });
+  await rm(backup, { force: true });
+  try {
+    await rename(target, backup);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   await rename(temporary, target);
+  await rm(backup, { force: true });
   await rm(legacyTablePath(table), { force: true });
 }
 

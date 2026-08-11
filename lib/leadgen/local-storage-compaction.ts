@@ -74,10 +74,21 @@ function newestFirst(left: CompactableRow, right: CompactableRow) {
 
 function applyRetention(table: string, rows: CompactableRow[]) {
   if (table === "leadgen_events") return [];
-  if (table === "leadgen_followup_scan_lock" || table === "leadgen_outreach_settings") {
+  if (
+    table === "leadgen_followup_scan_lock" ||
+    table === "leadgen_outreach_settings" ||
+    table === "leadgen_client_profile"
+  ) {
     return [...rows].sort(newestFirst).slice(0, 1);
   }
   if (table === "leadgen_sync_state") return [...rows].sort(newestFirst).slice(0, 32);
+  if (table === "leadgen_diagnostics") {
+    const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1_000;
+    return [...rows]
+      .filter((row) => Date.parse(String(row.timestamp ?? "")) >= cutoff)
+      .sort(newestFirst)
+      .slice(0, 200);
+  }
   if (table === "leadgen_telegram_notifications") {
     const pending = rows.filter((row) => row.status !== "sent");
     const sent = rows.filter((row) => row.status === "sent").sort(newestFirst).slice(0, 50);

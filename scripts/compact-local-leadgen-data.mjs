@@ -7,7 +7,7 @@ import { compactLocalTableRows } from "../lib/leadgen/local-storage-compaction.t
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
 const configured = process.env.LEADGEN_LOCAL_DATA_DIR?.trim();
-const root = path.join(configured ? path.resolve(configured) : path.join(process.cwd(), ".leadgen-data"), "tables");
+const root = path.join(configured ? path.resolve(configured) : path.join(process.cwd(), ".client-leadgen-data"), "tables");
 await mkdir(root, { recursive: true });
 
 const files = (await readdir(root)).filter((name) => name.endsWith(".json") || name.endsWith(".json.gz"));

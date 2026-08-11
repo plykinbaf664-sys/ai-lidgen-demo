@@ -1419,11 +1419,6 @@ export function EmailOutreachQueue({
                   : "Реальная отправка"}
               </span>
             ) : null}
-            {deliveryStorageMode === "local" ? (
-              <span className="outreach-mode-badge test">
-                Локальная очередь · без Supabase
-              </span>
-            ) : null}
           </div>
           <p className="muted">
             Проверка, очередь и результат отправки в одном месте.

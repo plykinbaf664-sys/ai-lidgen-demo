@@ -14,6 +14,7 @@ import {
 } from "@/lib/leadgen/first-email-generator";
 import { normalizeLeadgenText } from "@/lib/leadgen/text-normalization";
 import type { LeadgenVerticalId } from "@/lib/leadgen/verticals";
+import type { ClientProfileSnapshot } from "@/lib/leadgen/client-profile-types";
 
 export type EmailMessageMode = "personal" | "department" | "generic_routing";
 
@@ -74,6 +75,7 @@ export function buildEmailOutreach({
   signalSourceUrl,
   signalConfidence,
   verticalId,
+  clientProfileSnapshot,
   businessProblemHypothesis,
   targetResponsibility,
   whyThisPerson,
@@ -96,6 +98,7 @@ export function buildEmailOutreach({
   signalSourceUrl?: string | null;
   signalConfidence?: number | null;
   verticalId?: LeadgenVerticalId;
+  clientProfileSnapshot?: ClientProfileSnapshot;
   businessProblemHypothesis?: string | null;
   targetResponsibility?: string | null;
   whyThisPerson?: string | null;
@@ -157,6 +160,7 @@ export function buildEmailOutreach({
     signalSourceUrl,
     uniquenessKey: `${contact.id}:${contact.email ?? ""}:${signalConfidence ?? ""}`,
     verticalId,
+    clientProfileSnapshot,
     businessProblemHypothesis,
     targetResponsibility,
     whyThisPerson,

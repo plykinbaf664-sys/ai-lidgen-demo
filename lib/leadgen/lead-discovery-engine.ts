@@ -24,7 +24,8 @@ import type { SignalSearchMarket } from "@/lib/leadgen/signals/query-builder";
 import { interpretSignal } from "@/lib/leadgen/signals/signal-interpreter";
 import { runSignalPipeline } from "@/lib/leadgen/signals/signal-pipeline";
 import { DISCOVERY_PAGES_PER_QUERY_PER_PASS } from "@/lib/leadgen/discovery-continuation";
-import { getVerticalIcp, getVerticalProfile, type LeadgenVerticalId } from "@/lib/leadgen/verticals";
+import { getCampaignIcp, getCampaignVerticalProfile, type LeadgenVerticalId } from "@/lib/leadgen/verticals";
+import type { ClientProfileSnapshot } from "@/lib/leadgen/client-profile-types";
 import type {
   CampaignInput,
   DecisionMakerProfile,
@@ -342,8 +343,8 @@ function getOpportunityFinalDecision(opportunity: OpportunityAssessment): string
   return "skipped_before_lead_creation";
 }
 
-function getSignalOrder(verticalId?: LeadgenVerticalId): SignalType[] {
-  const prioritizedSignals = Object.entries(getVerticalIcp(verticalId).signalPriorities)
+function getSignalOrder(verticalId?: LeadgenVerticalId, snapshot?: ClientProfileSnapshot): SignalType[] {
+  const prioritizedSignals = Object.entries(getCampaignIcp(verticalId, snapshot).signalPriorities)
     .sort((left, right) => right[1] - left[1])
     .map(([signalType]) => signalType as SignalType);
 
@@ -368,10 +369,14 @@ function buildCampaign(
     name: campaignInput.name,
     requested_by: campaignInput.requestedBy,
     status: "completed",
-    icp_label: getVerticalIcp(campaignInput.verticalId).label,
-    offer_label: getVerticalProfile(campaignInput.verticalId).offer,
+    icp_label: getCampaignIcp(campaignInput.verticalId, campaignInput.clientProfileSnapshot).label,
+    offer_label: getCampaignVerticalProfile(campaignInput.verticalId, campaignInput.clientProfileSnapshot).offer,
     created_at: createdAt,
     vertical_id: campaignInput.verticalId,
+    segment_id: campaignInput.segmentId,
+    segment_description: campaignInput.segmentDescription,
+    target_count: campaignInput.targetCount,
+    client_profile_snapshot: campaignInput.clientProfileSnapshot,
   };
 }
 
@@ -932,6 +937,15 @@ function buildSignals({
     campaign_id: campaign.id,
     lead_id: lead.id,
     company_id: company.id,
+    evidence: candidate.confirmed_facts?.join(" ").slice(0, 1_000) || signal.signal_detail,
+    why_now: candidate.why_now ?? signal.signal_detail,
+    relevance_to_icp: candidate.why_it_matters ?? `ICP fit ${candidate.icp_fit_score}/100`,
+    quality_class:
+      candidate.evidence_quality === "confirmed_event"
+        ? "commercial_signal"
+        : candidate.evidence_quality === "weak_context" || candidate.confidence_level === "weak_evidence"
+          ? "weak_hypothesis"
+          : "ordinary_mention",
     created_at: createdAt,
   }));
 }
@@ -963,6 +977,7 @@ async function discoverCandidates({
   deadlineAt,
   searchPageOffset,
   verticalId,
+  clientProfileSnapshot,
 }: {
   searchProvider: SearchProvider;
   leadTarget: number;
@@ -971,6 +986,7 @@ async function discoverCandidates({
   deadlineAt: number;
   searchPageOffset: number;
   verticalId?: LeadgenVerticalId;
+  clientProfileSnapshot?: ClientProfileSnapshot;
 }): Promise<{
   records: CandidateRecord[];
   stats: NonNullable<LeadDiscoveryResult["production_discovery_stats"]>;
@@ -1000,7 +1016,7 @@ async function discoverCandidates({
     Math.max(4, Math.ceil(leadTarget / 3)),
   );
 
-  for (const signalType of getSignalOrder(verticalId)) {
+  for (const signalType of getSignalOrder(verticalId, clientProfileSnapshot)) {
     if (Date.now() >= searchDeadlineAt) break;
     const result = await runSignalPipeline({
       signalType,
@@ -1012,6 +1028,7 @@ async function discoverCandidates({
       pageOffset,
       market,
       verticalId,
+      clientProfileSnapshot,
       deadlineAt: searchDeadlineAt,
     });
     resultsReceived += result.all_evidence.length;
@@ -1130,6 +1147,7 @@ export async function runLeadDiscoveryEngine({
     deadlineAt,
     searchPageOffset,
     verticalId: campaignInput.verticalId,
+    clientProfileSnapshot: campaignInput.clientProfileSnapshot,
   });
   const candidateRecords = discovery.records;
   const leadWorkflowCandidateRecords = candidateRecords;
@@ -1138,7 +1156,10 @@ export async function runLeadDiscoveryEngine({
       discoverDecisionMaker({
         candidate,
         signalType,
-        preferredRoles: getVerticalProfile(campaignInput.verticalId).targetRoles,
+        preferredRoles: getCampaignVerticalProfile(
+          campaignInput.verticalId,
+          campaignInput.clientProfileSnapshot,
+        ).targetRoles,
       }),
   );
   const acceptedDecisionMakerByKey = new Map(

@@ -1,7 +1,9 @@
 import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
+import { existsSync } from "node:fs";
 
-loadEnvFile(resolve(process.cwd(), ".env.local"));
+const productionEnv = resolve(process.cwd(), ".env.production");
+if (existsSync(productionEnv)) loadEnvFile(productionEnv);
 
 const baseUrl = (process.env.LEADGEN_BASE_URL || "http://localhost:3000").replace(
   /\/$/,

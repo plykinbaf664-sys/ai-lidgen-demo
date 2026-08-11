@@ -1,6 +1,7 @@
 import tls from "node:tls";
 import { lookup } from "node:dns/promises";
 import { parseReferences, type IncomingHeader } from "./followup-rules";
+import { assertClientMailboxIsolation } from "./mailbox-isolation";
 
 const CONNECTION_TIMEOUT_MS = 30_000;
 const COMMAND_TIMEOUT_MS = 30_000;
@@ -70,6 +71,7 @@ export function getImapReplyConfig(): ImapReplyConfig {
   if (!user.includes("@")) {
     throw new Error("IMAP не настроен: IMAP_USER должен быть полным email-адресом.");
   }
+  assertClientMailboxIsolation(user);
   return { host, port, secure: true, user, password };
 }
 

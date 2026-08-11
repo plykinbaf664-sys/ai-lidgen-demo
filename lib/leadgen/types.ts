@@ -720,6 +720,10 @@ export type CampaignInput = {
   name: string;
   requestedBy: string;
   verticalId?: import("@/lib/leadgen/verticals").LeadgenVerticalId;
+  segmentId?: string;
+  segmentDescription?: string;
+  targetCount?: number;
+  clientProfileSnapshot?: import("@/lib/leadgen/client-profile-types").ClientProfileSnapshot;
 };
 
 export type Contact = {
@@ -758,6 +762,10 @@ export type LeadgenCampaign = {
   offer_label: string;
   created_at: string;
   vertical_id?: import("@/lib/leadgen/verticals").LeadgenVerticalId;
+  segment_id?: string;
+  segment_description?: string;
+  target_count?: number;
+  client_profile_snapshot?: import("@/lib/leadgen/client-profile-types").ClientProfileSnapshot;
   production_discovery_stats?: ProductionDiscoveryStats;
   operational_status?: CampaignOperationalStatus;
 };
@@ -821,6 +829,10 @@ export type LeadgenSignal = {
   signal_source_label: string;
   source_url: string;
   confidence_score: number;
+  evidence?: string;
+  why_now?: string;
+  relevance_to_icp?: string;
+  quality_class?: "commercial_signal" | "ordinary_mention" | "weak_hypothesis";
   found_at: string;
   created_at: string;
 };
@@ -922,6 +934,7 @@ export type LeadgenCampaignSummary = {
   sent_count?: number;
   initial_sent_count: number;
   followup_sent_count: number;
+  reply_count: number;
   needs_review_count: number;
   approved_count: number;
   queued_count: number;

@@ -28,7 +28,7 @@ export type SignalQuery = {
 
 type LocalizedTerms = Record<SignalQueryLanguage, readonly string[]>;
 
-type SignalQueryIcp = {
+export type SignalQueryIcp = {
   industries: LocalizedTerms;
   companyTypes: LocalizedTerms;
   keywords: LocalizedTerms;

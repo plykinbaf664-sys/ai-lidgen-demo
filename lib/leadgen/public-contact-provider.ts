@@ -1,3 +1,4 @@
+import { safePublicFetch } from "@/lib/security/safe-public-fetch";
 import type {
   LeadgenCompany,
   LeadgenContact,
@@ -22,7 +23,8 @@ import {
 } from "@/lib/leadgen/public-email-parser";
 import { buildEmailOutreach } from "@/lib/leadgen/email-outreach-builder";
 import { discoverCompanyEmails } from "@/lib/leadgen/email-discovery-engine";
-import { getVerticalProfile } from "@/lib/leadgen/verticals";
+import { getCampaignVerticalProfile } from "@/lib/leadgen/verticals";
+import type { ClientProfileSnapshot } from "@/lib/leadgen/client-profile-types";
 
 const publicUrlPattern = /https?:\/\/[^\s"'<>\\)]+/gi;
 const officialSitePaths = [
@@ -203,13 +205,13 @@ async function fetchPublicPageText(url: string): Promise<string | null> {
   const timeout = setTimeout(() => controller.abort(), 5000);
 
   try {
-    const response = await fetch(url, {
+    const response = await safePublicFetch(url, {
       headers: {
         accept: "text/html,text/plain;q=0.9,*/*;q=0.1",
         "user-agent": "LeadgenOS/1.0 contact-enrichment",
       },
       signal: controller.signal,
-    });
+    }, { timeoutMs: 5_000, maxResponseBytes: 750_000 });
 
     if (!response.ok) {
       return null;
@@ -339,14 +341,14 @@ async function findHhPublicVacancyContact(
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(feedbackEmail)) return null;
 
   try {
-    const response = await fetch(`https://api.hh.ru/vacancies/${vacancyId}`, {
+    const response = await safePublicFetch(`https://api.hh.ru/vacancies/${vacancyId}`, {
       headers: {
         accept: "application/json",
         "HH-User-Agent": `LeadgenOS/1.0 (${feedbackEmail})`,
         "user-agent": `LeadgenOS/1.0 (${feedbackEmail})`,
       },
       signal: AbortSignal.timeout(5_000),
-    });
+    }, { timeoutMs: 5_000, maxResponseBytes: 500_000 });
     if (!response.ok) return null;
     return parseHhPublicVacancyContact(
       await response.json(),
@@ -367,14 +369,14 @@ function decodeHtmlAttribute(value: string): string {
 
 async function fetchHhPageHtml(url: string): Promise<string | null> {
   try {
-    const response = await fetch(url, {
+    const response = await safePublicFetch(url, {
       headers: {
         accept: "text/html",
         "user-agent":
           "Mozilla/5.0 (compatible; LeadgenOS/1.0; official-site-resolution)",
       },
       signal: AbortSignal.timeout(8_000),
-    });
+    }, { timeoutMs: 8_000, maxResponseBytes: 1_000_000 });
     if (!response.ok) return null;
     return (await response.text()).slice(0, 1_600_000);
   } catch {
@@ -1490,10 +1492,11 @@ export class PublicContactProvider implements ContactProvider {
             commercialSignalSourceUrl: input.signals[0]?.source_url ?? null,
             targetPersona: input.decisionMaker?.primary_persona ?? null,
             targetDepartment: input.decisionMaker?.department ?? null,
-            emailPriority: getVerticalProfile(
+            emailPriority: getCampaignVerticalProfile(
               typeof input.company.metadata.vertical_id === "string"
                 ? input.company.metadata.vertical_id
                 : null,
+              input.campaign.client_profile_snapshot,
             ).emailPriority,
           },
           searchProvider,
@@ -1619,6 +1622,7 @@ export class PublicContactProvider implements ContactProvider {
         signalDetail: input.signals[0]?.signal_detail ?? input.lead.signal_detail,
         signalSourceUrl: input.signals[0]?.source_url ?? null,
         signalConfidence: input.signals[0]?.confidence_score ?? null,
+        clientProfileSnapshot: input.campaign.client_profile_snapshot as ClientProfileSnapshot | undefined,
         businessProblemHypothesis: input.decisionMaker?.expected_pain ?? null,
         targetResponsibility: input.decisionMaker?.business_problem_owner ?? null,
         whyThisPerson:
@@ -1753,6 +1757,7 @@ export class PublicContactProvider implements ContactProvider {
             input.signals[0]?.signal_detail ?? input.lead.signal_detail,
           signalSourceUrl: input.signals[0]?.source_url ?? null,
           signalConfidence: input.signals[0]?.confidence_score ?? null,
+          clientProfileSnapshot: input.campaign.client_profile_snapshot as ClientProfileSnapshot | undefined,
           businessProblemHypothesis: input.decisionMaker?.expected_pain ?? null,
           targetResponsibility: input.decisionMaker?.business_problem_owner ?? null,
           whyThisPerson: input.decisionMaker?.reasoning ?? null,
@@ -1939,6 +1944,7 @@ export class PublicContactProvider implements ContactProvider {
         signalDetail: input.signals[0]?.signal_detail ?? input.lead.signal_detail,
         signalSourceUrl: input.signals[0]?.source_url ?? null,
         signalConfidence: input.signals[0]?.confidence_score ?? null,
+        clientProfileSnapshot: input.campaign.client_profile_snapshot as ClientProfileSnapshot | undefined,
         businessProblemHypothesis: input.decisionMaker?.expected_pain ?? null,
         targetResponsibility: input.decisionMaker?.business_problem_owner ?? null,
         whyThisPerson: input.decisionMaker?.reasoning ?? null,

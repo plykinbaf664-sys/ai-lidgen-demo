@@ -1,3 +1,5 @@
+import { safePublicFetch } from "@/lib/security/safe-public-fetch";
+
 type FetchLike = typeof fetch;
 
 type RetryFetchOptions = {
@@ -77,7 +79,7 @@ export async function fetchWithTransientRetry(
   input: Parameters<typeof fetch>[0],
   init: RequestInit | undefined,
   {
-    fetchImpl = fetch,
+    fetchImpl = safePublicFetch as typeof fetch,
     timeoutMs,
     maxAttempts = 3,
     retryDelaysMs = [250, 750],

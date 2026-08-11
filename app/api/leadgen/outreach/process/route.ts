@@ -1,8 +1,16 @@
 import { NextResponse } from "next/server";
-import { formatUnknownError } from "@/lib/leadgen/error-format";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 import { runOutreachProcessorIteration } from "@/lib/leadgen/outreach-scheduler";
 import { getOutreachDeliveryStorageMode } from "@/lib/leadgen/local-outreach-store";
 import { runLocalOutreachProcessorIteration } from "@/lib/leadgen/local-outreach-scheduler";
+import { timingSafeEqual } from "node:crypto";
+import { checkRateLimit } from "@/lib/security/rate-limit";
+
+function safeEqual(left: string, right: string) {
+  const a = Buffer.from(left);
+  const b = Buffer.from(right);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 
 async function handleProcess(request: Request) {
   const secrets = [
@@ -16,10 +24,17 @@ async function handleProcess(request: Request) {
   const authorization = request.headers.get("authorization");
   if (
     secrets.length === 0 ||
-    (!encodedSecrets.includes(encodedToken ?? "") &&
-      !secrets.some((secret) => authorization === `Bearer ${secret}`))
+    (!encodedSecrets.some((secret) => safeEqual(secret, encodedToken ?? "")) &&
+      !secrets.some((secret) => safeEqual(`Bearer ${secret}`, authorization ?? "")))
   ) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+  }
+  const rate = checkRateLimit(request, "processor", 12, 60_000);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { success: false, error: "Too many processor requests" },
+      { status: 429, headers: { "Retry-After": String(rate.retryAfterSeconds) } },
+    );
   }
   try {
     return NextResponse.json({
@@ -30,9 +45,12 @@ async function handleProcess(request: Request) {
         : await runOutreachProcessorIteration()),
     });
   } catch (error) {
-    return NextResponse.json({ success: false, error: formatUnknownError(error) }, { status: 500 });
+    return NextResponse.json({ success: false, error: formatPublicError(error) }, { status: 500 });
   }
 }
 
 export const POST = handleProcess;
-export const GET = handleProcess;
+
+export async function GET() {
+  return NextResponse.json({ success: false, error: "Method not allowed" }, { status: 405 });
+}

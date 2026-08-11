@@ -14,6 +14,7 @@
 
 # Local persistent outreach queue (contains recipients and message bodies)
 /.leadgen-data/
+/.client-leadgen-data/
 
 # logs
 npm-debug.log*

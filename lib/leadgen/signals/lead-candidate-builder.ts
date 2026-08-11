@@ -1,5 +1,5 @@
 import type { EvidenceResult } from "@/lib/leadgen/signals/evidence-collector";
-import { scoreIcpFit } from "@/lib/leadgen/signals/icp-fit-scorer";
+import { scoreIcpFit, type IcpScoringContext } from "@/lib/leadgen/signals/icp-fit-scorer";
 import type { LeadCandidate, LeadgenSignal } from "@/lib/leadgen/types";
 
 type CandidateGroup = {
@@ -91,7 +91,7 @@ function getSourceQualityBonus(evidence: EvidenceResult[]): number {
   return 0;
 }
 
-function calculateLeadScore(evidence: EvidenceResult[]): number {
+function calculateLeadScore(evidence: EvidenceResult[], context?: IcpScoringContext): number {
   const confidenceScores = evidence.map((item) => item.confidence_score);
   const maxConfidence = Math.max(...confidenceScores);
   const averageConfidence =
@@ -104,7 +104,7 @@ function calculateLeadScore(evidence: EvidenceResult[]): number {
     evidence.flatMap((item) => item.matched_icp_terms),
   );
   const icpMatchBonus = Math.min(uniqueIcpTerms.size * 2, 10);
-  const { icp_fit_score: icpFitScore } = scoreIcpFit(evidence);
+  const { icp_fit_score: icpFitScore } = scoreIcpFit(evidence, context);
 
   return Math.min(
     Math.round(
@@ -154,8 +154,8 @@ function getEvidenceLanguage(
   return ruCount > enCount ? "ru" : "en";
 }
 
-function createLeadCandidate(group: CandidateGroup): LeadCandidate {
-  const icpFit = scoreIcpFit(group.evidence);
+function createLeadCandidate(group: CandidateGroup, context?: IcpScoringContext): LeadCandidate {
+  const icpFit = scoreIcpFit(group.evidence, context);
   const commercialSignal = [...group.evidence]
     .filter((item) => item.commercial_signal)
     .sort((left, right) => right.confidence_score - left.confidence_score)[0]
@@ -167,7 +167,7 @@ function createLeadCandidate(group: CandidateGroup): LeadCandidate {
     company_segment: getCompanySegment(group.evidence),
     company_source_url: group.companySourceUrl,
     signals: group.signals,
-    lead_score: calculateLeadScore(group.evidence),
+    lead_score: calculateLeadScore(group.evidence, context),
     icp_fit_score: icpFit.icp_fit_score,
     icp_fit_breakdown: icpFit.breakdown,
     gtm_signal_type: getGtmSignalType(group.evidence),
@@ -178,6 +178,7 @@ function createLeadCandidate(group: CandidateGroup): LeadCandidate {
 
 export function buildLeadCandidates(
   evidenceResults: EvidenceResult[],
+  context?: IcpScoringContext,
 ): BuildLeadCandidatesResult {
   const groups = new Map<string, CandidateGroup>();
   const skippedEvidence: EvidenceResult[] = [];
@@ -228,7 +229,7 @@ export function buildLeadCandidates(
 
   return {
     candidates: [...groups.values()]
-      .map(createLeadCandidate)
+      .map((group) => createLeadCandidate(group, context))
       .sort((left, right) => right.lead_score - left.lead_score),
     skipped_evidence: skippedEvidence,
   };

@@ -1,9 +1,12 @@
+import { isValidEntityId, requirePrivateApi } from "@/lib/security/api-access";
 import { after, NextResponse } from "next/server";
 import { scheduleFollowupBatch } from "@/lib/leadgen/followup-storage";
-import { formatUnknownError } from "@/lib/leadgen/error-format";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 import { runOutreachProcessorIteration } from "@/lib/leadgen/outreach-scheduler";
 
 export async function POST(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const body = (await request.json()) as {
       count?: number;
@@ -11,6 +14,9 @@ export async function POST(request: Request) {
     };
     if (!Number.isInteger(body.count) || Number(body.count) < 1 || Number(body.count) > 20) {
       return NextResponse.json({ success: false, error: "Некорректный batch" }, { status: 400 });
+    }
+    if (body.campaignId !== undefined && !isValidEntityId(body.campaignId)) {
+      return NextResponse.json({ success: false, error: "Некорректный campaignId." }, { status: 400 });
     }
     const scheduled = await scheduleFollowupBatch(
       Number(body.count),
@@ -26,6 +32,6 @@ export async function POST(request: Request) {
       ...scheduled,
     });
   } catch (error) {
-    return NextResponse.json({ success: false, error: formatUnknownError(error) }, { status: 500 });
+    return NextResponse.json({ success: false, error: formatPublicError(error) }, { status: 500 });
   }
 }

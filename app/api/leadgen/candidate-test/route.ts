@@ -1,3 +1,5 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 import { NextResponse } from "next/server";
 import { leadgenConfig } from "@/lib/leadgen/config";
 import {
@@ -24,11 +26,7 @@ function isSignalType(value: string | null): value is SignalType {
 }
 
 function formatRouteError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
+  return formatPublicError(error, "Не удалось выполнить диагностический поиск.");
 }
 
 function toEvidenceResponse(evidence: EvidenceResult) {
@@ -63,6 +61,8 @@ function toRejectedResult(result: SearchResult, evidence: EvidenceResult) {
 }
 
 export async function GET(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const url = new URL(request.url);
     const signal = url.searchParams.get("signal");

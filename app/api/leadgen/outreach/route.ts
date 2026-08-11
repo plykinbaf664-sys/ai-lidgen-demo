@@ -1,3 +1,4 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
 import { NextRequest, NextResponse } from "next/server";
 import {
   getOutreachOperationalState,
@@ -6,10 +7,10 @@ import {
   getDailySendStats,
   syncOutreachQueue,
 } from "@/lib/leadgen/outreach-storage";
-import { formatUnknownError } from "@/lib/leadgen/error-format";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 import { getOutreachSummary } from "@/lib/leadgen/outreach-summary";
 
-const errorText = (error: unknown) => formatUnknownError(error);
+const errorText = (error: unknown) => formatPublicError(error);
 
 function lazyEntry<T extends { body: string }>(entry: T): T {
   return {
@@ -19,6 +20,8 @@ function lazyEntry<T extends { body: string }>(entry: T): T {
 }
 
 export async function GET(request: NextRequest) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const campaignId = request.nextUrl.searchParams.get("campaignId");
     const [workingSet, daily, summary] = await Promise.all([
@@ -67,6 +70,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const { campaignId } = (await request.json()) as { campaignId?: string };
     if (!campaignId) {

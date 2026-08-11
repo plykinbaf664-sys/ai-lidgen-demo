@@ -1,4 +1,6 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
 import { NextResponse } from "next/server";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 import { savePipelineResult } from "@/lib/leadgen/storage";
 import type {
   LeadgenCampaign,
@@ -9,31 +11,12 @@ import type {
   TelegramNotification,
 } from "@/lib/leadgen/types";
 
-function formatRouteError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
+export async function POST(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
+  if (process.env.NODE_ENV === "production") {
+    return NextResponse.json({ success: false, error: "Not found" }, { status: 404 });
   }
-
-  if (typeof error === "object" && error !== null) {
-    const maybeError = error as {
-      message?: unknown;
-      code?: unknown;
-      details?: unknown;
-      hint?: unknown;
-    };
-
-    return JSON.stringify({
-      message: maybeError.message,
-      code: maybeError.code,
-      details: maybeError.details,
-      hint: maybeError.hint,
-    });
-  }
-
-  return String(error);
-}
-
-export async function GET() {
   try {
     const createdAt = new Date().toISOString();
     const pipelineRunId = `test-storage-${Date.now()}`;
@@ -132,7 +115,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-        error: formatRouteError(error),
+        error: formatPublicError(error, "Storage test failed."),
       },
       { status: 500 },
     );

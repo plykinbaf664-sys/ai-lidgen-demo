@@ -717,6 +717,12 @@ export async function regenerateLatestUnsentOutreach(execute: boolean) {
   }
 
   const campaignId = latestResult.data.campaign_id;
+  const campaignResult = await supabase
+    .from("leadgen_campaigns")
+    .select("client_profile_snapshot")
+    .eq("id", campaignId)
+    .maybeSingle<{ client_profile_snapshot?: import("@/lib/leadgen/client-profile-types").ClientProfileSnapshot }>();
+  if (campaignResult.error) throw campaignResult.error;
   const queueResult = await supabase
     .from("leadgen_outreach_queue")
     .select(QUEUE_FIELDS)
@@ -746,6 +752,7 @@ export async function regenerateLatestUnsentOutreach(execute: boolean) {
       signalEvidence: signal?.detail ?? signal?.title,
       signalSourceUrl: signal?.source_url,
       verticalId: metadata.vertical_id as import("@/lib/leadgen/verticals").LeadgenVerticalId | undefined,
+      clientProfileSnapshot: campaignResult.data?.client_profile_snapshot,
       uniquenessKey: `${row.id}:${row.message_version + 1}`,
       batchBodies,
     });

@@ -1,8 +1,11 @@
+import { requirePrivateApi } from "@/lib/security/api-access";
 import { NextResponse } from "next/server";
 import { diagnoseImapConnection } from "@/lib/leadgen/imap-reply-detector";
-import { formatUnknownError } from "@/lib/leadgen/error-format";
+import { formatPublicError } from "@/lib/leadgen/error-format";
 
-export async function POST() {
+export async function POST(request: Request) {
+  const denied = await requirePrivateApi(request);
+  if (denied) return denied;
   try {
     const diagnostic = await diagnoseImapConnection();
     return NextResponse.json({
@@ -12,7 +15,7 @@ export async function POST() {
   } catch (error) {
     return NextResponse.json({
       success: false,
-      error: formatUnknownError(error, "Не удалось проверить IMAP."),
+      error: formatPublicError(error, "Не удалось проверить IMAP."),
     }, { status: 500 });
   }
 }

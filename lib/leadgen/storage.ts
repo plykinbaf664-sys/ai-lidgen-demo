@@ -66,6 +66,7 @@ type StoredOutreachCampaignRef = {
   campaign_id: string;
   status: string;
   message_kind?: "initial" | "follow_up";
+  reply_detected_at?: string | null;
 };
 
 function deriveCampaignOperationalStatus(counts: {
@@ -363,7 +364,7 @@ export async function getRecentCampaigns(
       .returns<StoredLeadCampaignRef[]>(),
     supabase
       .from("leadgen_outreach_queue")
-      .select("campaign_id,status,message_kind")
+      .select("campaign_id,status,message_kind,reply_detected_at")
       .in("campaign_id", campaignIds)
       .returns<StoredOutreachCampaignRef[]>(),
   ]);
@@ -390,6 +391,7 @@ export async function getRecentCampaigns(
   const sentCounts = new Map<string, number>();
   const initialSentCounts = new Map<string, number>();
   const followupSentCounts = new Map<string, number>();
+  const replyCounts = new Map<string, number>();
   const outreachCounts = new Map<string, {
     needsReview: number; approved: number; queued: number; sending: number; sent: number; failed: number;
   }>();
@@ -405,6 +407,9 @@ export async function getRecentCampaigns(
   }
 
   for (const item of outreachError ? [] : outreach ?? []) {
+    if (item.reply_detected_at) {
+      replyCounts.set(item.campaign_id, (replyCounts.get(item.campaign_id) ?? 0) + 1);
+    }
     const counts = outreachCounts.get(item.campaign_id) ?? {
       needsReview: 0, approved: 0, queued: 0, sending: 0, sent: 0, failed: 0,
     };
@@ -459,6 +464,7 @@ export async function getRecentCampaigns(
     sent_count: sentCounts.get(campaign.id) ?? 0,
     initial_sent_count: initialSentCounts.get(campaign.id) ?? 0,
     followup_sent_count: followupSentCounts.get(campaign.id) ?? 0,
+    reply_count: replyCounts.get(campaign.id) ?? 0,
     needs_review_count: counts.needsReview,
     approved_count: counts.approved,
     queued_count: counts.queued,

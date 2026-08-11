@@ -3,43 +3,67 @@
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import type { CampaignInput } from "@/lib/leadgen/types";
-import { DEFAULT_VERTICAL_ID, LEADGEN_VERTICALS, type LeadgenVerticalId } from "@/lib/leadgen/verticals";
+import { SEGMENTS } from "@/lib/leadgen/segments";
 
 type CampaignFormProps = {
   isRunning?: boolean;
+  disabled?: boolean;
   onRun: (campaign: CampaignInput) => void | Promise<void>;
 };
 
-const defaultRequestedBy = "Оператор Leadgen OS";
+const defaultRequestedBy = "Клиент";
 
-export function CampaignForm({ isRunning = false, onRun }: CampaignFormProps) {
-  const [verticalId, setVerticalId] = useState<LeadgenVerticalId>(DEFAULT_VERTICAL_ID);
-  const [name, setName] = useState("Производственные компании — отдел продаж");
+export function CampaignForm({ isRunning = false, disabled = false, onRun }: CampaignFormProps) {
+  const [segmentId, setSegmentId] = useState("manufacturing");
+  const [segmentDescription, setSegmentDescription] = useState("");
+  const [targetCount, setTargetCount] = useState(20);
+  const [name, setName] = useState("Новый поиск лидов");
 
-  function handleVerticalChange(value: LeadgenVerticalId) {
-    setVerticalId(value);
-    setName(`${LEADGEN_VERTICALS[value].label} — новые лиды`);
+  function handleSegmentChange(value: string) {
+    setSegmentId(value);
+    const segment = SEGMENTS.find((item) => item.id === value);
+    setName(`${segment?.label ?? "Новый сегмент"} — новые лиды`);
   }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    void onRun({ name: name.trim(), requestedBy: defaultRequestedBy, verticalId });
+    const segment = SEGMENTS.find((item) => item.id === segmentId);
+    void onRun({
+      name: name.trim(),
+      requestedBy: defaultRequestedBy,
+      verticalId: segment?.verticalId ?? undefined,
+      segmentId,
+      segmentDescription: segmentId === "other" ? segmentDescription.trim() : undefined,
+      targetCount,
+    });
   }
 
   return (
     <form className="campaign-form campaign-form-compact" onSubmit={handleSubmit}>
       <label className="form-field">
         <span>Сегмент</span>
-        <select disabled={isRunning} value={verticalId} onChange={(event) => handleVerticalChange(event.target.value as LeadgenVerticalId)}>
-          {Object.values(LEADGEN_VERTICALS).map((vertical) => <option key={vertical.id} value={vertical.id}>{vertical.label}</option>)}
+        <select disabled={isRunning || disabled} value={segmentId} onChange={(event) => handleSegmentChange(event.target.value)}>
+          {SEGMENTS.map((segment) => <option key={segment.id} value={segment.id}>{segment.label}</option>)}
         </select>
       </label>
+      {segmentId === "other" ? (
+        <label className="form-field">
+          <span>Описание сегмента</span>
+          <textarea disabled={isRunning || disabled} required value={segmentDescription} onChange={(event) => setSegmentDescription(event.target.value)} />
+        </label>
+      ) : null}
       <label className="form-field">
         <span>Название кампании</span>
-        <input disabled={isRunning} required value={name} onChange={(event) => setName(event.target.value)} />
+        <input disabled={isRunning || disabled} required value={name} onChange={(event) => setName(event.target.value)} />
       </label>
-      <p className="muted campaign-vertical-note">{LEADGEN_VERTICALS[verticalId].offer}</p>
-      <Button className="campaign-submit-button" loading={isRunning} type="submit" variant="primary">
+      <label className="form-field">
+        <span>Количество готовых лидов</span>
+        <select disabled={isRunning || disabled} value={targetCount} onChange={(event) => setTargetCount(Number(event.target.value))}>
+          <option value={5}>5</option><option value={10}>10</option><option value={20}>20</option>
+        </select>
+      </label>
+      <p className="muted campaign-vertical-note">Цель считается по готовым лидам с сигналом, сайтом, контактом и письмом.</p>
+      <Button className="campaign-submit-button" disabled={disabled} loading={isRunning} type="submit" variant="primary">
         {isRunning ? "Идёт поиск…" : "Запустить поиск"}
       </Button>
     </form>
