@@ -29,15 +29,21 @@ export default function LoginPage() {
   return (
     <main className="login-page">
       <form className="login-card" onSubmit={submit}>
-        <p className="eyebrow">Leadgen Client</p>
-        <h1>Вход</h1>
-        <p className="muted">Закрытая панель одного клиента.</p>
+        <div className="login-brand-row">
+          <p className="eyebrow">Leadgen Client</p>
+          <span className="login-security-state"><i />Приватный контур</span>
+        </div>
+        <div className="login-heading">
+          <h1>Добро пожаловать</h1>
+          <p className="muted">Войдите в закрытую рабочую панель.</p>
+        </div>
         <label><span>Логин или email</span><input name="username" required autoComplete="username" /></label>
         <label><span>Пароль</span><input name="password" type="password" required autoComplete="current-password" /></label>
         {error ? <p className="outreach-error" role="alert">{error}</p> : null}
         <button className="ui-button ui-button-primary" disabled={pending} type="submit">
           {pending ? "Входим…" : "Войти"}
         </button>
+        <small className="login-footnote">Lead intelligence · Outreach · Follow-up</small>
       </form>
     </main>
   );

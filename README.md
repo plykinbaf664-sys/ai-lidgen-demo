@@ -1,4 +1,102 @@
 # ai-lidgen-os
+
+## Автономный клиентский MVP
+
+Актуальный статус на 11 августа 2026 года. Это изолированная single-client версия Leadgen OS для одного VPS. Она работает в локальном режиме без обязательных Supabase-запросов, платных contact-баз и CRM. Ниже сохранена прежняя архитектурная документация как историческая справка.
+
+### Что реализовано
+
+- Редактируемый ICP клиента, настраиваемые сегменты и неизменяемый snapshot ICP для каждой кампании.
+- Импорт ICP из PDF, DOCX и TXT: проверка размера, MIME, расширения и сигнатуры; извлечение только текста; AI-разбор в структурированную редактируемую форму без автоматического запуска кампании. Исходный файл постоянно не хранится.
+- Поиск компаний по актуальным ICP, сегменту и продукту; проверка ICP-fit, реального коммерческого сигнала, evidence, `why_now`, relevance и confidence.
+- Поиск лучшего доступного контакта по публичным источникам без Apollo/Hunter/Snov/Clay; generic email используется только как fallback, данные не выдумываются.
+- Глобальная дедупликация компаний, доменов, людей и email; поиск продолжается до целевого количества contact-ready лидов в пределах safety budget.
+- Персонализированные subject/body/CTA, approval, bulk approval, постоянная server-side очередь, SMTP, IMAP, reply state, follow-up и минимальная история.
+- Компактная локальная persistent storage через `StorageAdapter`; данные переживают refresh, restart и reboot. Временные данные и старая диагностика очищаются, business history автоматически не удаляется.
+- Single-client authentication, понятная клиентская навигация и отдельные технические diagnostics.
+
+### Security hardening
+
+- Все рабочие страницы и приватные API защищены server-side authentication.
+- Пароль хранится как `scrypt`-хэш; сессия находится в `HttpOnly`, `SameSite=Lax`, production `Secure` cookie, имеет срок действия, logout и новый идентификатор после login.
+- Добавлены CSRF origin-check, rate limits, строгая валидация входных данных, безопасные ошибки и редактирование секретов в логах.
+- React-рендеринг не использует непроверенный raw HTML; настроены CSP с nonce и production security headers.
+- Crawler защищён от SSRF: только HTTP(S), DNS/IP-проверка, блокировка localhost/private/reserved/metadata адресов, проверка redirect, timeout и лимит ответа.
+- Upload не принимает произвольные пути или исполняемый контент; filename не используется как filesystem path. БД, backup и временные файлы не находятся в `public/`.
+- SMTP, IMAP, auth, LLM и search secrets поступают только из server environment и не возвращаются через API/browser bundle.
+
+Полный checklist и реальные остаточные риски: [docs/security-audit.md](docs/security-audit.md).
+
+### Быстрый сценарий работы
+
+1. Войти в панель.
+2. Заполнить ICP вручную или загрузить документ, проверить preview и нажать «Сохранить ICP».
+3. Создать кампанию, выбрать сегмент и количество готовых лидов.
+4. Проверить найденные лиды и письма, одобрить корректные и поставить их в очередь.
+5. Отдельный processor отправляет очередь; IMAP проверяет ответы, после чего формируются follow-up на проверку.
+
+### Конфигурация
+
+Скопируйте [.env.example](.env.example) в server-side environment и вручную заполните группы:
+
+- `APPLICATION`, `AUTH`, `SEARCH`, `LLM`;
+- отдельные клиентские `SMTP` и `IMAP` credentials;
+- `STORAGE`, `QUEUE` и production URL.
+
+`.env.local` в ходе разработки не изменялся. Пароли и API-ключи не сохраняются в локальной БД.
+
+### Смена пароля клиента
+
+Не создавайте `scrypt`-hash вручную. На сервере выполните:
+
+```bash
+cd /var/www/ai-lidgen-demo
+npm run auth:set-password -- --env-file .env.local
+npm run auth:test -- --env-file .env.local
+npm run pm2:restart-with-env -- --env-file .env.local --pm2-name leadgen-demo
+```
+
+Команда использует скрытый ввод, безопасно экранирует `$` для Next.js dotenv и не выводит пароль/hash. Диагностика: `npm run auth:diagnose`; сквозная проверка: `npm run auth:e2e -- --base-url https://HOST --username EMAIL`.
+
+### Production
+
+Целевая схема: HTTPS/Internet → Nginx → Next.js на loopback → локальное persistent storage; фоновые queue/IMAP/cleanup задачи запускаются через systemd. Полная пошаговая инструкция, Nginx, Certbot, systemd, права и backup: [docs/client-vps-deploy.md](docs/client-vps-deploy.md).
+
+```bash
+npm ci
+npm run build
+npm run start
+```
+
+Production должен открываться только через HTTPS. Приложение не нужно публиковать напрямую на внешнем Node-порту.
+
+### Проверки
+
+Пройдены:
+
+- `npx tsc --noEmit`;
+- `npm run lint`;
+- `npm run build`;
+- `scripts/check-project.sh`;
+- security regression: 20/20;
+- dependency audit: 0 известных vulnerabilities;
+- проверка отсутствия настроенных секретов в browser bundle;
+- queue/restart persistence и backup checks.
+
+Реальные письма не отправлялись. Commit, push и deploy автоматически не выполнялись. `DEPLOYMENT_READY=YES` действует после заполнения новых секретов, настройки HTTPS и запуска проверок на целевом VPS.
+
+### Остаточные ограничения MVP
+
+- Rate limiting хранится в памяти одного процесса и сбрасывается при restart.
+- Сессия stateless: logout закрывает cookie в браузере, но централизованного blacklist нет.
+- PDF extraction рассчитан на обычные текстовые PDF; сканы требуют OCR вне текущего MVP.
+- Документы не проверяются отдельным antivirus engine; они ограничены типом/размером и не исполняются.
+- AI-разбор документа передаёт нормализованный текст настроенному LLM-провайдеру; это нужно учитывать в политике данных клиента.
+
+---
+
+## Историческая документация исходного Leadgen OS
+
 # Leadgen OS — Current Architecture
 
 ## Цель проекта

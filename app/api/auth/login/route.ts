@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { verifyClientCredentials } from "@/lib/auth/password";
+import { diagnoseClientCredentials } from "@/lib/auth/password";
 import { createSessionToken, getSessionMaxAge, SESSION_COOKIE } from "@/lib/auth/session";
 import { isSameOriginMutation } from "@/lib/security/api-access";
 import { checkRateLimit, resetRateLimit } from "@/lib/security/rate-limit";
@@ -20,7 +20,9 @@ export async function POST(request: Request) {
     );
   }
   const body = (await request.json().catch(() => ({}))) as { username?: string; password?: string };
-  if (!verifyClientCredentials(body.username?.trim() ?? "", body.password ?? "")) {
+  const credentialResult = diagnoseClientCredentials(body.username?.trim() ?? "", body.password ?? "");
+  if (!credentialResult.valid) {
+    console.warn("Authentication rejected.", { reason: credentialResult.reason });
     return NextResponse.json({ success: false, error: "Неверный логин или пароль." }, { status: 401 });
   }
   resetRateLimit(request, "login");

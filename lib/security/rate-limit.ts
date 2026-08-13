@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createHash } from "node:crypto";
+import { getRateLimitClientAddress } from "./rate-limit-ip.mjs";
 
 type RateLimitEntry = { count: number; resetAt: number };
 type RateLimitResult = { allowed: boolean; retryAfterSeconds: number; remaining: number };
@@ -9,10 +10,11 @@ const buckets = new Map<string, RateLimitEntry>();
 let lastCleanup = 0;
 
 function fingerprint(request: Request) {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",").at(-1)?.trim();
-  const address = request.headers.get("x-real-ip")?.trim() || forwarded || "local";
+  const address = getRateLimitClientAddress(request);
   return createHash("sha256").update(address).digest("base64url").slice(0, 20);
 }
+
+export { getRateLimitClientAddress };
 
 function cleanup(now: number) {
   if (now - lastCleanup < 60_000) return;

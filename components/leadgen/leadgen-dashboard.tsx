@@ -249,13 +249,13 @@ export function LeadgenDashboard() {
       <ClientProfileForm onReady={handleProfileReady} />
 
       <section className="client-overview panel" aria-label="Сводка">
-        <div><span>ICP клиента</span><strong>{clientName}</strong></div>
+        <div className="overview-client"><span>ICP клиента</span><strong>{clientName}</strong></div>
         <div><span>Кампаний</span><strong>{campaigns.length}</strong></div>
-        <div><span>Готово к проверке</span><strong>{campaigns.reduce((sum, item) => sum + item.needs_review_count, 0)}</strong></div>
+        <div><span>К проверке</span><strong>{campaigns.reduce((sum, item) => sum + item.needs_review_count, 0)}</strong></div>
         <div><span>Одобрено</span><strong>{campaigns.reduce((sum, item) => sum + item.approved_count, 0)}</strong></div>
         <div><span>В очереди</span><strong>{campaigns.reduce((sum, item) => sum + item.queued_count + item.sending_count, 0)}</strong></div>
         <div><span>Отправлено</span><strong>{campaigns.reduce((sum, item) => sum + item.initial_sent_count + item.followup_sent_count, 0)}</strong></div>
-        <div><span>Ответов</span><strong>{campaigns.reduce((sum, item) => sum + item.reply_count, 0)}</strong></div>
+        <div className="overview-replies"><span>Ответов</span><strong>{campaigns.reduce((sum, item) => sum + item.reply_count, 0)}</strong></div>
       </section>
 
       <section className="leadgen-config panel" id="new-search">

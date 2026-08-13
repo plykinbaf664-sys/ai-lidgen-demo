@@ -7,7 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "audit:supabase": "node scripts/check-supabase-schema.mjs"
+    "audit:supabase": "node scripts/check-supabase-schema.mjs",
+    "auth:set-password": "node scripts/auth-set-password.mjs",
+    "auth:test": "node scripts/auth-test.mjs",
+    "auth:e2e": "node scripts/auth-e2e.mjs",
+    "auth:diagnose": "node scripts/auth-env-diagnostic.mjs",
+    "auth:apply-hash": "node scripts/auth-apply-hash.mjs",
+    "pm2:restart-with-env": "node scripts/pm2-restart-with-env.mjs",
+    "test:auth-runtime": "node --conditions=react-server scripts/test-auth-runtime.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",

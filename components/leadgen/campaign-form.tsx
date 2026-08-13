@@ -39,24 +39,24 @@ export function CampaignForm({ isRunning = false, disabled = false, onRun }: Cam
   }
 
   return (
-    <form className="campaign-form campaign-form-compact" onSubmit={handleSubmit}>
-      <label className="form-field">
+    <form className={`campaign-form campaign-form-compact${segmentId === "other" ? " has-custom-segment" : ""}`} onSubmit={handleSubmit}>
+      <label className="form-field campaign-field-segment">
         <span>Сегмент</span>
         <select disabled={isRunning || disabled} value={segmentId} onChange={(event) => handleSegmentChange(event.target.value)}>
           {SEGMENTS.map((segment) => <option key={segment.id} value={segment.id}>{segment.label}</option>)}
         </select>
       </label>
       {segmentId === "other" ? (
-        <label className="form-field">
+        <label className="form-field campaign-field-other">
           <span>Описание сегмента</span>
           <textarea disabled={isRunning || disabled} required value={segmentDescription} onChange={(event) => setSegmentDescription(event.target.value)} />
         </label>
       ) : null}
-      <label className="form-field">
+      <label className="form-field campaign-field-name">
         <span>Название кампании</span>
         <input disabled={isRunning || disabled} required value={name} onChange={(event) => setName(event.target.value)} />
       </label>
-      <label className="form-field">
+      <label className="form-field campaign-field-target">
         <span>Количество готовых лидов</span>
         <select disabled={isRunning || disabled} value={targetCount} onChange={(event) => setTargetCount(Number(event.target.value))}>
           <option value={5}>5</option><option value={10}>10</option><option value={20}>20</option>
