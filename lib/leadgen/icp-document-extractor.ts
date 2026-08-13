@@ -21,13 +21,27 @@ function fail(message: string, status = 400): never {
 }
 
 function cleanText(value: string) {
-  return value
+  const normalized = value
     .replace(/\u0000/g, "")
     .replace(/[\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .replace(/[ \t]{2,}/g, " ")
     .trim();
+  const seen = new Set<string>();
+  return normalized.split("\n").filter((line) => {
+    const key = line.trim().toLocaleLowerCase("ru");
+    if (key.length < 40) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function boundedContext(value: string) {
+  if (value.length <= MAX_TEXT_CHARS) return value;
+  const half = Math.floor((MAX_TEXT_CHARS - 160) / 2);
+  return `${value.slice(0, half)}\n\n[Середина очень большого документа опущена для безопасного лимита контекста]\n\n${value.slice(-half)}`;
 }
 
 function finalize(kind: IcpDocumentKind, value: string): ExtractedIcpDocument {
@@ -35,7 +49,7 @@ function finalize(kind: IcpDocumentKind, value: string): ExtractedIcpDocument {
   if (normalized.length < 20) fail("В документе не найдено достаточно текста.");
   return {
     kind,
-    text: normalized.slice(0, MAX_TEXT_CHARS),
+    text: boundedContext(normalized),
     truncated: normalized.length > MAX_TEXT_CHARS,
   };
 }

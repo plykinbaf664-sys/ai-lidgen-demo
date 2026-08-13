@@ -1,6 +1,6 @@
 import "server-only";
 
-import { PublicError } from "@/lib/leadgen/error-format";
+import { PublicError } from "./error-format.ts";
 import {
   EMPTY_CLIENT_PROFILE,
   type ClientProfile,
@@ -11,7 +11,7 @@ import {
   type IcpQualificationRule,
   type IcpScoringRule,
   type IcpSignalStrategy,
-} from "@/lib/leadgen/client-profile-types";
+} from "./client-profile-types.ts";
 
 export type IcpFieldState = "auto" | "clarify" | "missing";
 export type IcpQualityCheck = {
@@ -314,6 +314,23 @@ function normalizedArray<T>(value: unknown, normalize: (item: unknown) => T | nu
   return Array.isArray(value) ? value.map(normalize).filter((item): item is T => item !== null).slice(0, max) : [];
 }
 
+function evidenceKey(value: string) {
+  return value.toLocaleLowerCase("ru").replace(/[«»“”„]/g, '"').replace(/[\s\u00A0]+/g, " ").trim();
+}
+
+function isGrounded(source: string, excerpt: string | null) {
+  if (!excerpt) return false;
+  const needle = evidenceKey(excerpt);
+  return needle.length >= 4 && evidenceKey(source).includes(needle);
+}
+
+function groundEvidence<T>(item: IcpEvidence<T>, source: string, dropped: { count: number }): IcpEvidence<T> {
+  if (item.value === null) return item;
+  if (isGrounded(source, item.sourceExcerpt)) return item;
+  dropped.count += 1;
+  return { value: null, confidence: null, sourceExcerpt: null };
+}
+
 function normalizeStructuredKnowledge(value: unknown): StructuredKnowledge {
   const item = record(value);
   return {
@@ -345,6 +362,48 @@ function normalizeStructuredKnowledge(value: unknown): StructuredKnowledge {
     personaRules: normalizedArray(item.personaRules, normalizePersonaRule, 20),
     qualificationRules: normalizedArray(item.qualificationRules, normalizeQualificationRule, 30),
     scoringRules: normalizedArray(item.scoringRules, normalizeScoringRule, 30),
+  };
+}
+
+function enforceDocumentEvidence(value: StructuredKnowledge, source: string) {
+  const dropped = { count: 0 };
+  const keepEntity = <T extends { sourceExcerpt: string | null }>(item: T) => {
+    const keep = isGrounded(source, item.sourceExcerpt);
+    if (!keep) dropped.count += 1;
+    return keep;
+  };
+  return {
+    knowledge: {
+      projectName: groundEvidence(value.projectName, source, dropped),
+      documentType: groundEvidence(value.documentType, source, dropped),
+      product: groundEvidence(value.product, source, dropped),
+      productDescription: groundEvidence(value.productDescription, source, dropped),
+      valueProposition: groundEvidence(value.valueProposition, source, dropped),
+      outreachGoal: groundEvidence(value.outreachGoal, source, dropped),
+      targetCompanies: groundEvidence(value.targetCompanies, source, dropped),
+      segments: groundEvidence(value.segments, source, dropped),
+      mandatoryCriteria: groundEvidence(value.mandatoryCriteria, source, dropped),
+      preferredCriteria: groundEvidence(value.preferredCriteria, source, dropped),
+      exclusionCriteria: groundEvidence(value.exclusionCriteria, source, dropped),
+      businessProblems: groundEvidence(value.businessProblems, source, dropped),
+      buyingContext: groundEvidence(value.buyingContext, source, dropped),
+      targetPersonas: groundEvidence(value.targetPersonas, source, dropped),
+      companyEconomics: groundEvidence(value.companyEconomics, source, dropped),
+      companySizeConstraints: groundEvidence(value.companySizeConstraints, source, dropped),
+      geography: groundEvidence(value.geography, source, dropped),
+      personalizationRules: groundEvidence(value.personalizationRules, source, dropped),
+      offerAngles: groundEvidence(value.offerAngles, source, dropped),
+      cta: groundEvidence(value.cta, source, dropped),
+      restrictions: groundEvidence(value.restrictions, source, dropped),
+      compliance: groundEvidence(value.compliance, source, dropped),
+      additionalContext: groundEvidence(value.additionalContext, source, dropped),
+      avatars: value.avatars.filter(keepEntity),
+      signals: value.signals.filter(keepEntity),
+      personaRules: value.personaRules.filter(keepEntity),
+      qualificationRules: value.qualificationRules.filter(keepEntity),
+      scoringRules: value.scoringRules.filter(keepEntity),
+    } satisfies StructuredKnowledge,
+    dropped: dropped.count,
   };
 }
 
@@ -408,7 +467,7 @@ function state(value: IcpEvidence<unknown>): IcpFieldState {
   return (value.confidence ?? 0) >= 0.72 ? "auto" : "clarify";
 }
 
-function toPreview(structured: StructuredKnowledge): IcpImportPreview {
+function toPreview(structured: StructuredKnowledge, groundingDropped = 0): IcpImportPreview {
   const { projectName, ...intelligence } = structured;
   const summary = makeSummary(intelligence);
   const mandatory = intelligence.mandatoryCriteria.value ?? intelligence.qualificationRules.filter((rule) => rule.type === "mandatory").map((rule) => rule.criterion);
@@ -455,7 +514,10 @@ function toPreview(structured: StructuredKnowledge): IcpImportPreview {
     additionalContext: "auto", intelligenceSummary: "auto", intelligence: "auto",
   };
   const quality = qualityCheck(intelligence);
-  return { profile, intelligence, fieldStates, summary, parser: "openai", warnings: quality.warnings, quality };
+  const groundingWarnings = groundingDropped
+    ? [`${groundingDropped} неподтверждённых элементов отброшено: для них не найден исходный фрагмент документа.`]
+    : [];
+  return { profile, intelligence, fieldStates, summary, parser: "openai", warnings: [...quality.warnings, ...groundingWarnings], quality };
 }
 
 export function buildIcpOpenAiRequest(documentText: string) {
@@ -535,25 +597,67 @@ async function readBoundedResponse(response: Response) {
   return new TextDecoder().decode(Buffer.concat(chunks));
 }
 
+function openAiHttpError(status: number): PublicError {
+  if (status === 401 || status === 403) {
+    return new PublicError("OpenAI отклонил серверный API-ключ. Проверьте OPENAI_API_KEY и права проекта.", 503);
+  }
+  if (status === 429) {
+    return new PublicError("Лимит OpenAI временно исчерпан. Повторите анализ позже.", 503);
+  }
+  if (status === 408 || status === 504) {
+    return new PublicError("OpenAI не успел проанализировать документ. Повторите попытку.", 504);
+  }
+  return new PublicError("OpenAI временно не смог проанализировать документ.", 502);
+}
+
+function parseOpenAiEnvelope(raw: string) {
+  let envelope: Record<string, unknown>;
+  try {
+    envelope = record(JSON.parse(raw));
+  } catch {
+    throw new PublicError("OpenAI вернул некорректный ответ. Повторите анализ документа.", 502);
+  }
+  if (envelope.status === "incomplete") {
+    throw new PublicError("Ответ OpenAI оказался неполным. Сократите документ или повторите анализ.", 502);
+  }
+  const text = outputText(envelope);
+  if (!text) throw new PublicError("OpenAI не вернул структурированный ICP. Повторите анализ документа.", 502);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new PublicError("OpenAI вернул неполный структурированный ICP. Повторите анализ документа.", 502);
+  }
+}
+
 export async function parseIcpDocumentText(text: string): Promise<IcpImportPreview> {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) throw new PublicError("Для адаптивного анализа документа настройте OPENAI_API_KEY.", 503);
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(buildIcpOpenAiRequest(text)),
-    signal: AbortSignal.timeout(75_000),
-  }).catch(() => { throw new PublicError("AI-анализ документа временно недоступен.", 502); });
-  const raw = await readBoundedResponse(response);
-  if (!response.ok) throw new PublicError("AI-анализ документа временно недоступен.", 502);
+  let response: Response;
   try {
-    const structured = normalizeStructuredKnowledge(JSON.parse(outputText(JSON.parse(raw))));
-    const preview = toPreview(structured);
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify(buildIcpOpenAiRequest(text)),
+      signal: AbortSignal.timeout(75_000),
+    });
+  } catch (error) {
+    if (error instanceof Error && /Timeout|Abort/i.test(error.name + error.message)) {
+      throw new PublicError("OpenAI не успел проанализировать документ. Повторите попытку.", 504);
+    }
+    throw new PublicError("Не удалось безопасно подключиться к OpenAI. Повторите попытку позже.", 502);
+  }
+  const raw = await readBoundedResponse(response);
+  if (!response.ok) throw openAiHttpError(response.status);
+  try {
+    const structured = normalizeStructuredKnowledge(parseOpenAiEnvelope(raw));
+    const grounded = enforceDocumentEvidence(structured, text);
+    const preview = toPreview(grounded.knowledge, grounded.dropped);
     if (!preview.profile.productName && !preview.profile.targetCustomer && preview.intelligence.avatars.length === 0) {
       throw new Error("No usable business knowledge");
     }
     return preview;
-  } catch {
+  } catch (error) {
+    if (error instanceof PublicError) throw error;
     throw new PublicError("Документ проанализирован, но рабочую ICP-конфигурацию извлечь не удалось. Попробуйте другой документ или уточните содержание.", 422);
   }
 }
