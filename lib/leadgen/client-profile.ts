@@ -8,6 +8,7 @@ import {
 } from "@/lib/leadgen/client-profile-types";
 import { getSegmentDefinition } from "@/lib/leadgen/segments";
 import { PublicError } from "@/lib/leadgen/error-format";
+import { normalizeStoredIcpIntelligence } from "@/lib/leadgen/icp-document-parser";
 
 const TABLE = "leadgen_client_profile";
 const MAX_FIELD_LENGTH = 2_000;
@@ -39,10 +40,12 @@ export function normalizeClientProfile(value: Partial<ClientProfile>): ClientPro
     exclusions: clean(value.exclusions),
     offerContext: clean(value.offerContext),
     additionalContext: clean(value.additionalContext),
+    intelligenceSummary: clean(value.intelligenceSummary),
+    intelligence: normalizeStoredIcpIntelligence(value.intelligence),
     updatedAt: new Date().toISOString(),
   };
-  const total = Object.values(profile).reduce((sum, item) => sum + item.length, 0);
-  if (total > 16_000) throw new PublicError("ICP превышает допустимый общий объём.");
+  const total = JSON.stringify(profile).length;
+  if (total > 64_000) throw new PublicError("ICP превышает допустимый общий объём.");
   return profile;
 }
 

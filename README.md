@@ -7,7 +7,7 @@
 ### Что реализовано
 
 - Редактируемый ICP клиента, настраиваемые сегменты и неизменяемый snapshot ICP для каждой кампании.
-- Импорт ICP из PDF, DOCX и TXT: проверка размера, MIME, расширения и сигнатуры; извлечение только текста; AI-разбор в структурированную редактируемую форму без автоматического запуска кампании. Исходный файл постоянно не хранится.
+- Адаптивный импорт ICP из PDF, DOCX и TXT: AI сначала понимает произвольный бизнес-документ, затем извлекает несколько аватаров, hard/soft/exclusion criteria, signals, conditional persona logic, scoring, offer/CTA и ограничения с confidence/source excerpt. Исходный файл постоянно не хранится и не читается повторно после нормализации.
 - Поиск компаний по актуальным ICP, сегменту и продукту; проверка ICP-fit, реального коммерческого сигнала, evidence, `why_now`, relevance и confidence.
 - Поиск лучшего доступного контакта по публичным источникам без Apollo/Hunter/Snov/Clay; generic email используется только как fallback, данные не выдумываются.
 - Глобальная дедупликация компаний, доменов, людей и email; поиск продолжается до целевого количества contact-ready лидов в пределах safety budget.
@@ -78,6 +78,7 @@ Production должен открываться только через HTTPS. П
 - `npm run lint`;
 - `npm run build`;
 - `scripts/check-project.sh`;
+- `node scripts/check-adaptive-icp-import.mjs --base-url URL --username EMAIL --fixture PATH` — regression-check на `B24U_ЦА_для_холодного_email_трафика.docx` через реальный import endpoint;
 - security regression: 20/20;
 - dependency audit: 0 известных vulnerabilities;
 - проверка отсутствия настроенных секретов в browser bundle;

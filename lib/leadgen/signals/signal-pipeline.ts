@@ -362,14 +362,34 @@ export async function runSignalPipeline({
     MAX_RESULTS_PER_QUERY_CAP,
   );
   const icp = getCampaignIcp(verticalId, clientProfileSnapshot);
+  const intelligence = clientProfileSnapshot?.intelligence;
   const scoringContext: IcpScoringContext | undefined = clientProfileSnapshot
     ? {
-        businessTerms: [...icp.industries.ru, ...icp.companyTypes.ru, clientProfileSnapshot.targetCustomer],
+        businessTerms: [
+          ...icp.industries.ru,
+          ...icp.companyTypes.ru,
+          clientProfileSnapshot.targetCustomer,
+          ...(intelligence?.mandatoryCriteria.value ?? []),
+          ...(intelligence?.preferredCriteria.value ?? []),
+        ],
         commercialTerms: splitProfileTerms(
-          [clientProfileSnapshot.productName, clientProfileSnapshot.primaryValue, clientProfileSnapshot.solvedProcesses].join(","),
+          [
+            clientProfileSnapshot.productName,
+            clientProfileSnapshot.primaryValue,
+            clientProfileSnapshot.solvedProcesses,
+            ...(intelligence?.signals.map((signal) => signal.description) ?? []),
+            ...(intelligence?.avatars.flatMap((avatar) => avatar.qualifyingSignals) ?? []),
+          ].join(","),
         ),
-        painTerms: splitProfileTerms(clientProfileSnapshot.targetProblems),
-        exclusionTerms: splitProfileTerms(clientProfileSnapshot.exclusions),
+        painTerms: splitProfileTerms([
+          clientProfileSnapshot.targetProblems,
+          ...(intelligence?.businessProblems.value ?? []),
+          ...(intelligence?.avatars.flatMap((avatar) => avatar.businessProblems) ?? []),
+        ].join(",")),
+        exclusionTerms: splitProfileTerms([
+          clientProfileSnapshot.exclusions,
+          ...(intelligence?.exclusionCriteria.value ?? []),
+        ].join(",")),
       }
     : undefined;
   const queries = buildSignalQueries({

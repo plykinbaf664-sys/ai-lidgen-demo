@@ -288,7 +288,8 @@ function getValuePitch(
     context.clientProfileSnapshot,
   );
   const clientValue = cleanText(
-    context.clientProfileSnapshot?.primaryValue ||
+    context.clientProfileSnapshot?.intelligence?.offerAngles.value?.[0] ||
+      context.clientProfileSnapshot?.primaryValue ||
       context.clientProfileSnapshot?.productDescription,
   ).slice(0, 150);
   const outcomes: Record<EmailIntent, string> = {
@@ -323,7 +324,9 @@ function getMicroValue(intent: EmailIntent, context?: FirstEmailContext): Outrea
   return { type: "ideas", items, summary: `Три идеи: ${items.join("; ")}.` };
 }
 
-function getCta(mode: OutreachMessageMode | null | undefined): string {
+function getCta(mode: OutreachMessageMode | null | undefined, context?: FirstEmailContext): string {
+  const configured = cleanText(context?.clientProfileSnapshot?.intelligence?.cta.value).slice(0, 140);
+  if (configured) return configured;
   if (mode === "personal") {
     return "Если разложу это на вашем процессе за 15 минут — обсудим?";
   }
@@ -411,7 +414,7 @@ export function generateFirstEmailV3(context: FirstEmailContext): FirstEmailCopy
       observation: getPatternInterrupt(context, intent, attempt),
       hypothesis: getSharpHypothesis(intent, context),
       value: getValuePitch(context, intent),
-      cta: getCta(context.messageMode),
+      cta: getCta(context.messageMode, context),
       signature: INITIAL_OUTREACH_SIGNATURE,
     };
     const body = [

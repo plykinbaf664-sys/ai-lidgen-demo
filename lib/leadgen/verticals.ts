@@ -70,6 +70,28 @@ export function getCampaignVerticalProfile(
   const customRoles = splitProfileTerms(snapshot.desiredRoles);
   const customPains = splitProfileTerms(snapshot.targetProblems);
   const customProcesses = splitProfileTerms(snapshot.solvedProcesses);
+  const intelligence = snapshot.intelligence;
+  const avatarCompanyTypes = intelligence?.avatars.flatMap((avatar) => avatar.companyTypes) ?? [];
+  const avatarProblems = intelligence?.avatars.flatMap((avatar) => avatar.businessProblems) ?? [];
+  const avatarSignals = intelligence?.avatars.flatMap((avatar) => avatar.qualifyingSignals) ?? [];
+  const intelligenceSignals = intelligence?.signals.map((signal) => signal.description) ?? [];
+  const intelligenceRoles = [
+    ...(intelligence?.targetPersonas.value ?? []),
+    ...(intelligence?.avatars.flatMap((avatar) => avatar.targetPersonas) ?? []),
+    ...(intelligence?.personaRules.flatMap((rule) => rule.targetPersonas) ?? []),
+  ];
+  const intelligenceCompanyTypes = [
+    ...(intelligence?.targetCompanies.value ?? []),
+    ...avatarCompanyTypes,
+  ];
+  const intelligencePains = [
+    ...(intelligence?.businessProblems.value ?? []),
+    ...avatarProblems,
+  ];
+  const intelligenceCriteria = [
+    ...(intelligence?.mandatoryCriteria.value ?? []),
+    ...(intelligence?.preferredCriteria.value ?? []),
+  ];
   const customIndustries = splitProfileTerms(
     [snapshot.segmentLabel, snapshot.segmentDescription, snapshot.industry, snapshot.targetCustomer]
       .filter(Boolean)
@@ -79,15 +101,14 @@ export function getCampaignVerticalProfile(
     ...vertical,
     label: snapshot.segmentLabel || vertical.label,
     industries: customIndustries.length ? customIndustries : vertical.industries,
-    companyTypes: splitProfileTerms(snapshot.companyType).length
-      ? splitProfileTerms(snapshot.companyType)
-      : vertical.companyTypes,
-    signalTerms: [...new Set([...customPains, ...customProcesses, ...vertical.signalTerms])].slice(0, 24),
-    targetRoles: customRoles.length ? customRoles : vertical.targetRoles,
-    offer: snapshot.primaryValue || snapshot.productDescription || vertical.offer,
-    pains: customPains.length ? customPains : vertical.pains,
+    companyTypes: [...new Set([...intelligenceCompanyTypes, ...splitProfileTerms(snapshot.companyType), ...vertical.companyTypes])].slice(0, 24),
+    signalTerms: [...new Set([...intelligenceSignals, ...avatarSignals, ...intelligenceCriteria, ...customPains, ...customProcesses, ...vertical.signalTerms])].slice(0, 32),
+    targetRoles: [...new Set([...intelligenceRoles, ...customRoles, ...vertical.targetRoles])].slice(0, 24),
+    offer: intelligence?.offerAngles.value?.[0] || snapshot.primaryValue || snapshot.productDescription || vertical.offer,
+    pains: [...new Set([...intelligencePains, ...customPains, ...vertical.pains])].slice(0, 24),
     examples: customProcesses.length ? customProcesses : vertical.examples,
-    vocabulary: [...new Set([...customIndustries, ...customProcesses])].slice(0, 24),
+    vocabulary: [...new Set([...customIndustries, ...intelligenceCompanyTypes, ...customProcesses])].slice(0, 24),
+    ctas: intelligence?.cta.value ? [intelligence.cta.value, ...vertical.ctas] : vertical.ctas,
   };
 }
 
@@ -103,6 +124,7 @@ export function getCampaignIcp(
         snapshot.primaryValue,
         snapshot.targetProblems,
         snapshot.solvedProcesses,
+        snapshot.intelligenceSummary,
         snapshot.additionalContext,
       ].filter(Boolean).join(","))
     : [];
