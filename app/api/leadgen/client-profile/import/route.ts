@@ -4,7 +4,7 @@ import { formatPublicError, PublicError } from "@/lib/leadgen/error-format";
 import { extractIcpDocument } from "@/lib/leadgen/icp-document-extractor";
 import { parseIcpDocumentText } from "@/lib/leadgen/icp-document-parser";
 
-export const maxDuration = 90;
+export const maxDuration = 240;
 
 export async function POST(request: Request) {
   const denied = await requirePrivateApi(request);
