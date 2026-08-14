@@ -2,7 +2,12 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { EMPTY_CLIENT_PROFILE, type ClientProfile } from "@/lib/leadgen/client-profile-types";
+import {
+  EMPTY_CLIENT_PROFILE,
+  splitProfileTerms,
+  type ClientProfile,
+  type IcpIntelligence,
+} from "@/lib/leadgen/client-profile-types";
 import type { IcpFieldState, IcpImportPreview } from "@/lib/leadgen/icp-document-parser";
 
 type EditableProfileKey = Exclude<keyof ClientProfile, "intelligence">;
@@ -31,8 +36,109 @@ const stateLabels: Record<IcpFieldState, string> = {
   missing: "Не найдено в документе",
 };
 
-function PreviewList({ items, empty = "Не найдено в документе" }: { items: string[]; empty?: string }) {
-  return items.length ? <ul>{items.slice(0, 8).map((item) => <li key={item}>{item}</li>)}</ul> : <p className="muted">{empty}</p>;
+function unique(items: Array<string | null | undefined>): string[] {
+  return [...new Set(items.map((item) => item?.trim()).filter((item): item is string => Boolean(item)))];
+}
+
+function CompactList({ items, empty = "Не указано" }: { items: string[]; empty?: string }) {
+  const values = unique(items);
+  if (!values.length) return <p className="muted">{empty}</p>;
+  return (
+    <>
+      <ul>{values.slice(0, 4).map((item) => <li key={item}>{item}</li>)}</ul>
+      {values.length > 4 ? <details className="icp-show-more"><summary>Показать всё · {values.length}</summary><ul>{values.slice(4).map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
+    </>
+  );
+}
+
+function ChipList({ items, empty = "Не указано" }: { items: string[]; empty?: string }) {
+  const values = unique(items);
+  if (!values.length) return <p className="muted">{empty}</p>;
+  return (
+    <div className="icp-chip-list">
+      {values.slice(0, 6).map((item) => <span key={item}>{item}</span>)}
+      {values.length > 6 ? <details className="icp-chip-more"><summary>+{values.length - 6}</summary><div>{values.slice(6).map((item) => <span key={item}>{item}</span>)}</div></details> : null}
+    </div>
+  );
+}
+
+function ProfileOverview({
+  profile,
+  intelligence,
+}: {
+  profile: ClientProfile;
+  intelligence: IcpIntelligence | null;
+}) {
+  const mandatory = intelligence?.mandatoryCriteria.value ?? intelligence?.qualificationRules.filter((rule) => rule.type === "mandatory").map((rule) => rule.criterion) ?? [];
+  const exclusions = intelligence?.exclusionCriteria.value ?? intelligence?.qualificationRules.filter((rule) => rule.type === "exclusion").map((rule) => rule.criterion) ?? splitProfileTerms(profile.exclusions);
+  const personas = unique([
+    ...(intelligence?.targetPersonas.value ?? []),
+    ...(intelligence?.personaRules.flatMap((rule) => rule.targetPersonas) ?? []),
+    ...(intelligence?.avatars.flatMap((avatar) => avatar.targetPersonas) ?? []),
+    ...splitProfileTerms(profile.desiredRoles),
+  ]);
+  const segments = unique([
+    ...(intelligence?.segments.value ?? []),
+    ...splitProfileTerms(profile.industry),
+  ]);
+  const targets = unique([
+    ...(intelligence?.targetCompanies.value ?? []),
+    ...(intelligence?.avatars.map((avatar) => avatar.name) ?? []),
+    ...splitProfileTerms(profile.targetCustomer),
+  ]);
+  const signals = unique([
+    ...(intelligence?.signals.map((signal) => signal.description) ?? []),
+    ...(intelligence?.avatars.flatMap((avatar) => avatar.qualifyingSignals) ?? []),
+  ]);
+  const pains = unique([
+    ...(intelligence?.businessProblems.value ?? []),
+    ...(intelligence?.avatars.flatMap((avatar) => avatar.businessProblems) ?? []),
+    ...splitProfileTerms(profile.targetProblems),
+  ]);
+  const offerAngles = unique([
+    ...(intelligence?.offerAngles.value ?? []),
+    ...splitProfileTerms(profile.offerContext),
+  ]);
+  const cta = intelligence?.cta.value || "";
+
+  return (
+    <div className="icp-compact-view">
+      <div className="icp-summary-strip">
+        <div><span>Проект</span><strong>{profile.projectName || "—"}</strong></div>
+        <div><span>Продукт</span><strong>{intelligence?.product.value || profile.productName || "—"}</strong></div>
+        <div><span>Ценность</span><p>{intelligence?.valueProposition.value || profile.primaryValue || "—"}</p></div>
+        <div><span>Основной CTA</span><p>{cta || "Не указан"}</p></div>
+      </div>
+      <div className="icp-compact-sections">
+        <section><h3>Сегменты</h3><ChipList items={segments} /></section>
+        <section><h3>Кого ищем</h3><ChipList items={targets} /></section>
+        <section><h3>Критерии</h3><CompactList items={mandatory.length ? mandatory : splitProfileTerms(profile.companySize)} /></section>
+        <section><h3>Сигналы</h3><CompactList items={signals} empty="В ICP не заданы" /></section>
+        <section><h3>ЛПР</h3><ChipList items={personas} /></section>
+        <section><h3>Боли</h3><CompactList items={pains} /></section>
+        <section><h3>Исключения</h3><CompactList items={exclusions} empty="Нет явных исключений" /></section>
+        <section><h3>Offer angle</h3><p className="icp-body-copy">{offerAngles.join(" · ") || profile.primaryValue || "Не указан"}</p></section>
+      </div>
+      {intelligence && (intelligence.avatars.length || intelligence.scoringRules.length || intelligence.restrictions.value?.length) ? (
+        <details className="icp-preview-details">
+          <summary>Детали ICP и логика приоритета</summary>
+          <div className="icp-avatar-grid">
+            {intelligence.avatars.map((avatar) => (
+              <article key={avatar.name}>
+                <div><strong>{avatar.name}</strong>{avatar.priority ? <span>{avatar.priority}</span> : null}</div>
+                <p>{avatar.companyTypes.join(", ") || "Типы компаний не определены"}</p>
+                {avatar.qualifyingSignals.length ? <small>Сигналы: {avatar.qualifyingSignals.join("; ")}</small> : null}
+                {avatar.targetPersonas.length ? <small>ЛПР: {avatar.targetPersonas.join(", ")}</small> : null}
+                {avatar.communicationAngle ? <small>Угол: {avatar.communicationAngle}</small> : null}
+              </article>
+            ))}
+          </div>
+          {intelligence.scoringRules.length ? <div className="icp-rule-block"><strong>Скоринг</strong><CompactList items={intelligence.scoringRules.map((rule) => `${rule.criterion}${rule.score === null ? "" : `: ${rule.score > 0 ? "+" : ""}${rule.score}`}${rule.condition ? ` — ${rule.condition}` : ""}`)} /></div> : null}
+          {intelligence.restrictions.value?.length ? <div className="icp-rule-block"><strong>Ограничения</strong><CompactList items={intelligence.restrictions.value} /></div> : null}
+        </details>
+      ) : null}
+    </div>
+  );
 }
 
 function IntelligencePreview({
@@ -47,54 +153,15 @@ function IntelligencePreview({
   onSave: () => void;
 }) {
   const intelligence = preview.intelligence;
-  const mandatory = intelligence.mandatoryCriteria.value ?? intelligence.qualificationRules.filter((rule) => rule.type === "mandatory").map((rule) => rule.criterion);
-  const exclusions = intelligence.exclusionCriteria.value ?? intelligence.qualificationRules.filter((rule) => rule.type === "exclusion").map((rule) => rule.criterion);
-  const personas = intelligence.personaRules.length
-    ? intelligence.personaRules.map((rule) => `${rule.companyContext}: ${rule.targetPersonas.join(", ")}`)
-    : intelligence.targetPersonas.value ?? [];
-  const offer = [...(intelligence.offerAngles.value ?? []), intelligence.cta.value].filter((item): item is string => Boolean(item));
   return (
     <div className="icp-intelligence-preview">
-      <div className="icp-preview-hero">
-        <div>
-          <p className="eyebrow">Документ проанализирован</p>
-          <h3>{intelligence.product.value || "Продукт требует уточнения"}</h3>
-          <p>{intelligence.valueProposition.value || intelligence.productDescription.value || "Проверьте извлечённое описание продукта."}</p>
-        </div>
+      <div className="icp-preview-status">
+        <p className="eyebrow">Документ проанализирован</p>
         <span className={`icp-quality ${preview.quality.passed ? "passed" : "needs-review"}`}>
           {preview.quality.passed ? "Готово к проверке" : "Нужно уточнение"} · {preview.quality.score}/6
         </span>
       </div>
-
-      <div className="icp-preview-grid">
-        <article><span>Кого ищем</span><strong>{preview.profile.targetCustomer || "Не определено"}</strong></article>
-        <article><span>Найдено аватаров</span><strong>{intelligence.avatars.length}</strong></article>
-        <article className="wide"><span>Обязательные критерии</span><PreviewList items={mandatory} /></article>
-        <article className="wide"><span>Ключевые сигналы</span><PreviewList items={intelligence.signals.map((signal) => signal.description)} /></article>
-        <article className="wide"><span>ЛПР и логика выбора</span><PreviewList items={personas} /></article>
-        <article className="wide"><span>Оффер и CTA</span><PreviewList items={offer} /></article>
-        <article className="wide"><span>Исключения</span><PreviewList items={exclusions} /></article>
-      </div>
-
-      <details className="icp-preview-details">
-        <summary>Посмотреть подробно</summary>
-        <div className="icp-avatar-grid">
-          {intelligence.avatars.map((avatar) => (
-            <article key={avatar.name}>
-              <div><strong>{avatar.name}</strong>{avatar.priority ? <span>{avatar.priority}</span> : null}</div>
-              <p>{avatar.companyTypes.join(", ") || "Типы компаний не определены"}</p>
-              {avatar.qualifyingSignals.length ? <small>Сигналы: {avatar.qualifyingSignals.join("; ")}</small> : null}
-              {avatar.targetPersonas.length ? <small>ЛПР: {avatar.targetPersonas.join(", ")}</small> : null}
-              {avatar.communicationAngle ? <small>Угол: {avatar.communicationAngle}</small> : null}
-              {avatar.sourceExcerpt ? <blockquote>{avatar.sourceExcerpt}</blockquote> : null}
-            </article>
-          ))}
-        </div>
-        {intelligence.scoringRules.length ? (
-          <div className="icp-rule-block"><strong>Скоринг</strong><PreviewList items={intelligence.scoringRules.map((rule) => `${rule.criterion}${rule.score === null ? "" : `: ${rule.score > 0 ? "+" : ""}${rule.score}`}${rule.condition ? ` — ${rule.condition}` : ""}`)} /></div>
-        ) : null}
-        {intelligence.restrictions.value?.length ? <div className="icp-rule-block"><strong>Ограничения и обещания</strong><PreviewList items={intelligence.restrictions.value} /></div> : null}
-      </details>
+      <ProfileOverview intelligence={intelligence} profile={preview.profile} />
 
       {preview.quality.warnings.length ? <p className="icp-preview-warning">{preview.quality.warnings.join(" ")}</p> : null}
       <div className="profile-actions icp-preview-actions">
@@ -211,12 +278,7 @@ export function ClientProfileForm({ onReady }: { onReady?: (ready: boolean, prof
           saving={saving}
         />
       ) : !editing ? (
-        <div className="client-profile-summary">
-          <div><span>Проект</span><strong>{profile.projectName}</strong></div>
-          <div><span>Продукт</span><strong>{profile.productName}</strong></div>
-          <div><span>Кого ищем</span><strong>{profile.targetCustomer}</strong></div>
-          <div><span>Ценность</span><strong>{profile.primaryValue || "—"}</strong></div>
-        </div>
+        <ProfileOverview intelligence={profile.intelligence} profile={profile} />
       ) : showImport ? (
         <form className="icp-upload" onSubmit={importDocument}>
           <label className="form-field">

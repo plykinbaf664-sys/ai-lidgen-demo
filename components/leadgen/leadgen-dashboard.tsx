@@ -42,6 +42,35 @@ type DetailsResponse =
   | { success: true; details: LeadgenCampaignDetails }
   | { success: false; error?: string };
 
+type ResearchUiState =
+  | "idle"
+  | "researching"
+  | "qualifying"
+  | "enriching"
+  | "ready"
+  | "partial"
+  | "failed";
+
+function getResearchState(
+  stats: ProductionDiscoveryStats | null | undefined,
+): ResearchUiState {
+  if (!stats) return "idle";
+  const ready = stats.email_ready_companies ?? stats.new_unique_emails ?? 0;
+  const target = stats.email_ready_target ?? stats.email_target ?? 20;
+  if (ready >= target || stats.target_reached) return "ready";
+  return ready > 0 || stats.results_received > 0 ? "partial" : "failed";
+}
+
+const researchStateLabels: Record<ResearchUiState, string> = {
+  idle: "Ожидает запуска",
+  researching: "Ищем компании",
+  qualifying: "Проверяем соответствие ICP",
+  enriching: "Ищем сигналы и контакты",
+  ready: "Готово",
+  partial: "Частичный результат",
+  failed: "Поиск остановлен",
+};
+
 function campaignStatusCopyForDashboard(status: LeadgenCampaignSummary["operational_status"]) {
   return {
     discovery_complete: "Поиск завершён",
@@ -71,9 +100,12 @@ export function LeadgenDashboard() {
   const [isOpening, setIsOpening] = useState(false);
   const [runProgress, setRunProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [researchState, setResearchState] = useState<ResearchUiState>("idle");
   const [profileReady, setProfileReady] = useState(false);
   const [clientName, setClientName] = useState("Клиент");
   const activeCampaignRef = useRef<HTMLElement | null>(null);
+  const runLockRef = useRef(false);
   const handleProfileReady = useCallback((ready: boolean, profile: ClientProfile) => {
     setProfileReady(ready);
     setClientName(profile.projectName || "Клиент");
@@ -104,11 +136,27 @@ export function LeadgenDashboard() {
         if (!active) return;
         setCampaigns(data.campaigns);
         if (data.campaigns[0]) {
-          setActiveCampaignId(data.campaigns[0].id);
-          setActiveCampaignName(data.campaigns[0].name);
+          const latest = data.campaigns[0];
+          setActiveCampaignId(latest.id);
+          setActiveCampaignName(latest.name);
+          const detailsResponse = await fetch(
+            `/api/leadgen/campaigns/details?id=${encodeURIComponent(latest.id)}`,
+          );
+          const details = await readJson<DetailsResponse>(detailsResponse);
+          if (!active) return;
+          if (detailsResponse.ok && details.success) {
+            const stats = details.details.campaign.production_discovery_stats ?? null;
+            setCampaignDetails(details.details);
+            setDiscovery(stats);
+            setResearchState(getResearchState(stats));
+          }
         }
       })
-      .catch(() => active && setError("Не удалось загрузить кампании."))
+      .catch(() => {
+        if (!active) return;
+        setResearchState("failed");
+        setError("Не удалось загрузить кампании.");
+      })
       .finally(() => active && setIsHistoryLoading(false));
     return () => { active = false; };
   }, []);
@@ -117,22 +165,30 @@ export function LeadgenDashboard() {
     input: CampaignInput,
     startingCampaignId: string | null = null,
   ) {
+    if (runLockRef.current) return;
+    runLockRef.current = true;
     setIsRunning(true);
     if (!startingCampaignId) {
       setCampaignDetails(null);
       setDiscovery(null);
+      setResearchState("researching");
     }
     setError(null);
+    setNotice(null);
+    let campaignId = startingCampaignId;
+    let savedPass = false;
     try {
-      let campaignId = startingCampaignId;
       let finalCampaign: LeadgenCampaign | null = null;
       let completedTarget = false;
-      let finalFound = 0;
+      let finalFound = startingCampaignId
+        ? discovery?.email_ready_companies ?? discovery?.new_unique_emails ?? 0
+        : 0;
       let finalTarget = input.targetCount ?? 20;
       for (let pass = 1; pass <= DISCOVERY_MAX_PASSES; pass += 1) {
+        setResearchState(pass === 1 ? "researching" : "qualifying");
         setRunProgress(
           campaignId
-            ? `Продолжаем поиск: проход ${pass}, готово ${discovery?.email_ready_companies ?? discovery?.new_unique_emails ?? 0} из ${finalTarget}`
+            ? `Продолжаем поиск: проход ${pass}, готово ${finalFound} из ${finalTarget}`
             : `Первый проход поиска: цель — ${finalTarget} готовых лидов`,
         );
         const response = await fetch("/api/leadgen/run", {
@@ -144,6 +200,8 @@ export function LeadgenDashboard() {
         if (!response.ok || !data.success) {
           throw new Error(formatUnknownError(data.success ? null : data.error));
         }
+        savedPass = true;
+        setResearchState("enriching");
         campaignId = data.campaign.id;
         finalCampaign = data.campaign;
         setActiveCampaignId(data.campaign.id);
@@ -154,7 +212,7 @@ export function LeadgenDashboard() {
           data.production_discovery_stats?.email_ready_companies ??
           data.production_discovery_stats?.new_unique_emails ??
           0;
-        finalTarget = data.continuation?.target ?? 50;
+        finalTarget = data.continuation?.target ?? finalTarget;
         completedTarget = finalFound >= finalTarget;
         setRunProgress(
           `Готово ${finalFound} из ${finalTarget} компаний с подтверждённым email. Проходов: ${data.continuation?.passes_completed ?? pass}.`,
@@ -175,14 +233,26 @@ export function LeadgenDashboard() {
         }
       }
       if (finalCampaign) setActiveCampaignName(finalCampaign.name);
-      if (!completedTarget) {
-        throw new Error(
-          `Поиск не завершён: готово ${finalFound} из ${finalTarget}. Промежуточный результат сохранён; продолжите поиск.`,
-        );
-      }
+      setResearchState(completedTarget ? "ready" : "partial");
+      setNotice(
+        completedTarget
+          ? `Поиск завершён: готово ${finalFound} из ${finalTarget}.`
+          : `Найдено ${finalFound} из ${finalTarget} действительно готовых лидов. Результат сохранён — поиск можно продолжить.`,
+      );
     } catch (caught) {
-      setError(caught instanceof Error && caught.message ? caught.message : "Не удалось запустить поиск.");
+      const message =
+        caught instanceof Error && caught.message
+          ? caught.message
+          : "Не удалось запустить поиск.";
+      if (savedPass && campaignId) {
+        setResearchState("partial");
+        setNotice(`Часть результатов сохранена. Следующий проход остановлен: ${message}`);
+      } else {
+        setResearchState("failed");
+        setError(message);
+      }
     } finally {
+      runLockRef.current = false;
       setIsRunning(false);
       setRunProgress(null);
     }
@@ -213,13 +283,16 @@ export function LeadgenDashboard() {
     setIsOpening(true);
     setCampaignDetails(null);
     setError(null);
+    setNotice(null);
     try {
       const response = await fetch(
         `/api/leadgen/campaigns/details?id=${encodeURIComponent(summary.id)}`,
       );
       const data = await readJson<DetailsResponse>(response);
       if (!response.ok || !data.success) throw new Error(formatUnknownError(data.success ? null : data.error));
-      setDiscovery(data.details.campaign.production_discovery_stats ?? null);
+      const stats = data.details.campaign.production_discovery_stats ?? null;
+      setDiscovery(stats);
+      setResearchState(getResearchState(stats));
       setCampaignDetails(data.details);
       window.requestAnimationFrame(() => {
         activeCampaignRef.current?.scrollIntoView({
@@ -238,11 +311,9 @@ export function LeadgenDashboard() {
     discovery?.email_ready_companies ?? discovery?.new_unique_emails ?? 0;
   const discoveryTarget =
     discovery?.email_ready_target ?? discovery?.email_target ?? 20;
-  const discoveryIncomplete = Boolean(
-    discovery &&
-      discovery.target_reached !== true &&
-      discoveryFound < discoveryTarget,
-  );
+  const discoveryChecked = discovery?.enriched_candidates_checked ?? 0;
+  const discoveryQualified =
+    discovery?.qualified_candidates_found ?? discovery?.new_unique_companies ?? 0;
 
   return (
     <div className="leadgen-console">
@@ -268,13 +339,14 @@ export function LeadgenDashboard() {
         <CampaignForm disabled={!profileReady} isRunning={isRunning} onRun={handleRun} />
         {!profileReady ? <p className="muted">Сначала заполните и сохраните ICP клиента.</p> : null}
         {runProgress ? <p className="muted">{runProgress}</p> : null}
+        {notice ? <p className="muted" role="status">{notice}</p> : null}
         {error ? <p className="outreach-error" role="alert">{error}</p> : null}
       </section>
 
       {activeCampaignId ? (
         <section className="active-campaign-shell" id="leads" ref={activeCampaignRef}>
           <div className="active-campaign-heading">
-            <div><p className="eyebrow">Текущая кампания</p><h2>{activeCampaignName}</h2>{campaigns.find((item) => item.id === activeCampaignId) ? <small className="muted">{campaignStatusCopyForDashboard(campaigns.find((item) => item.id === activeCampaignId)!.operational_status)}</small> : null}</div>
+            <div><p className="eyebrow">Текущая кампания</p><h2>{activeCampaignName}</h2><small className="muted">{researchStateLabels[researchState]}{campaigns.find((item) => item.id === activeCampaignId) ? ` · ${campaignStatusCopyForDashboard(campaigns.find((item) => item.id === activeCampaignId)!.operational_status)}` : ""}</small></div>
             {canContinueDiscovery(discovery) ? (
               <Button
                 disabled={isRunning}
@@ -288,27 +360,21 @@ export function LeadgenDashboard() {
             {discovery ? (
               <div className="discovery-inline">
                 <span>
-                  Готовые компании{" "}
-                  <strong>
-                    {discovery.email_ready_companies ?? discovery.new_unique_emails ?? 0} из{" "}
-                    {discovery.email_ready_target ?? discovery.email_target ?? 20}
-                  </strong>
+                  Найдено <strong>{discovery.results_received}</strong>
                 </span>
+                <span>Проверено <strong>{discoveryChecked}</strong></span>
+                <span>Подходит <strong>{discoveryQualified}</strong></span>
+                <span>Готово <strong>{discoveryFound} / {discoveryTarget}</strong></span>
                 <span>Персональных ЛПР <strong>{discovery.contact_ready_people ?? 0}</strong></span>
-                <span>Проверено результатов <strong>{discovery.results_received}</strong></span>
-                <span>
-                  Прошли первичный отбор{" "}
-                  <strong>{discovery.qualified_candidates_found ?? discovery.new_unique_companies}</strong>
-                </span>
               </div>
             ) : null}
           </div>
-          {isRunning || discoveryIncomplete ? (
+          {isRunning && !campaignDetails ? (
             <section className="panel leadgen-empty-campaign" aria-live="polite">
-              <h2>Формируем полный набор</h2>
+              <h2>{researchStateLabels[researchState]}</h2>
               <p>
-                Готово {discoveryFound} из {discoveryTarget}. Промежуточные
-                карточки появятся после завершения целевого набора.
+                Готово {discoveryFound} из {discoveryTarget}. Сохраняем только
+                компании, прошедшие критерии готового лида.
               </p>
             </section>
           ) : (

@@ -97,10 +97,14 @@ export function getCampaignVerticalProfile(
       .filter(Boolean)
       .join(","),
   );
+  const selectedIndustries =
+    snapshot.segmentId === "other" && customIndustries.length
+      ? customIndustries
+      : vertical.industries;
   return {
     ...vertical,
     label: snapshot.segmentLabel || vertical.label,
-    industries: customIndustries.length ? customIndustries : vertical.industries,
+    industries: selectedIndustries,
     companyTypes: [...new Set([...intelligenceCompanyTypes, ...splitProfileTerms(snapshot.companyType), ...vertical.companyTypes])].slice(0, 24),
     signalTerms: [...new Set([...intelligenceSignals, ...avatarSignals, ...intelligenceCriteria, ...customPains, ...customProcesses, ...vertical.signalTerms])].slice(0, 32),
     targetRoles: [...new Set([...intelligenceRoles, ...customRoles, ...vertical.targetRoles])].slice(0, 24),

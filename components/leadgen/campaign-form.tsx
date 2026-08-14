@@ -12,12 +12,14 @@ type CampaignFormProps = {
 };
 
 const defaultRequestedBy = "Клиент";
+const defaultSegmentId = "manufacturing";
+const defaultSegmentName = `${SEGMENTS.find((item) => item.id === defaultSegmentId)?.label ?? "Новый сегмент"} — новые лиды`;
 
 export function CampaignForm({ isRunning = false, disabled = false, onRun }: CampaignFormProps) {
-  const [segmentId, setSegmentId] = useState("manufacturing");
+  const [segmentId, setSegmentId] = useState(defaultSegmentId);
   const [segmentDescription, setSegmentDescription] = useState("");
   const [targetCount, setTargetCount] = useState(20);
-  const [name, setName] = useState("Новый поиск лидов");
+  const [name, setName] = useState(defaultSegmentName);
 
   function handleSegmentChange(value: string) {
     setSegmentId(value);
@@ -63,7 +65,7 @@ export function CampaignForm({ isRunning = false, disabled = false, onRun }: Cam
         </select>
       </label>
       <p className="muted campaign-vertical-note">Цель считается по готовым лидам с сигналом, сайтом, контактом и письмом.</p>
-      <Button className="campaign-submit-button" disabled={disabled} loading={isRunning} type="submit" variant="primary">
+      <Button className="campaign-submit-button" disabled={disabled || isRunning} loading={isRunning} type="submit" variant="primary">
         {isRunning ? "Идёт поиск…" : "Запустить поиск"}
       </Button>
     </form>

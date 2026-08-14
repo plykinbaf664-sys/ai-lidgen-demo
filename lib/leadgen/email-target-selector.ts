@@ -12,6 +12,56 @@ import {
   isContactReadyPerson,
 } from "@/lib/leadgen/adaptive-contact-intelligence";
 
+function hasHttpSource(value: string | null | undefined): boolean {
+  if (!value) return false;
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function isStructurallyReadyLead({
+  lead,
+  company,
+  contact,
+  signals,
+}: {
+  lead: LeadgenLead;
+  company: LeadDiscoveryResult["companies"][number] | undefined;
+  contact: LeadgenContact;
+  signals: LeadDiscoveryResult["signals"];
+}): boolean {
+  if (
+    !company?.company_domain ||
+    company.icp_fit_score < 45 ||
+    !lead.hook.trim() ||
+    !lead.message.trim() ||
+    /draft hypothesis|not ready to send/i.test(`${lead.hook} ${lead.message}`)
+  ) {
+    return false;
+  }
+
+  const signal = signals.find(
+    (item) =>
+      item.lead_id === lead.id &&
+      item.confidence_score >= 45 &&
+      item.signal_detail.trim() &&
+      item.quality_class !== "weak_hypothesis" &&
+      hasHttpSource(item.source_url),
+  );
+  if (!signal) return false;
+
+  return Boolean(
+    contact.full_name ||
+      contact.role_title ||
+      contact.department ||
+      contact.metadata.entry_role === "best_outreach_entry" ||
+      contact.metadata.entry_role === "fallback_entry",
+  );
+}
+
 function getRankedEmailContacts(
   lead: LeadgenLead,
   contacts: LeadgenContact[],
@@ -62,6 +112,9 @@ export function selectCampaignEmailTarget({
   let duplicateEmailsSkipped = 0;
   let duplicatePeopleSkipped = 0;
   let contactReadyPeople = 0;
+  const companyById = new Map(
+    result.companies.map((company) => [company.id, company]),
+  );
 
   for (const lead of result.leads) {
     if (selectedEmails.size >= target) break;
@@ -85,6 +138,16 @@ export function selectCampaignEmailTarget({
         : "";
       if (personKey && (unavailablePeople.has(personKey) || selectedPeople.has(personKey))) {
         duplicatePeopleSkipped += 1;
+        continue;
+      }
+      if (
+        !isStructurallyReadyLead({
+          lead,
+          company: lead.company_id ? companyById.get(lead.company_id) : undefined,
+          contact,
+          signals: result.signals,
+        })
+      ) {
         continue;
       }
       selectedContact = contact;

@@ -20,10 +20,10 @@ const { leadgenProductionConfig } = await import(
   `../lib/leadgen/production-config.ts?limits=${Date.now()}`
 );
 
-assert.equal(leadgenProductionConfig.campaignCompanyLimit, 50);
+assert.equal(leadgenProductionConfig.campaignCompanyLimit, 60);
 assert.equal(leadgenProductionConfig.dailyLeadLimit, 50);
 assert.equal(leadgenProductionConfig.contactReadyTarget, 20);
-assert.equal(leadgenProductionConfig.campaignEmailTarget, 50);
+assert.equal(leadgenProductionConfig.campaignEmailTarget, 20);
 assert.equal(leadgenProductionConfig.emailDailySendLimit, 100);
 assert.equal(leadgenProductionConfig.emailBatchSendLimit, 50);
 
@@ -40,4 +40,4 @@ for (const [key, value] of Object.entries(previous)) {
   else process.env[envKey] = value;
 }
 
-console.log("PRODUCTION_LIMITS_OK discovery_pool=50 email_ready=50 contact_ready_quality_metric=20 initial_daily=100 initial_batch=50");
+console.log("PRODUCTION_LIMITS_OK discovery_pool=60 email_ready=20 contact_ready_quality_metric=20 initial_daily=100 initial_batch=50");

@@ -25,6 +25,7 @@ import { interpretSignal } from "@/lib/leadgen/signals/signal-interpreter";
 import { runSignalPipeline } from "@/lib/leadgen/signals/signal-pipeline";
 import { DISCOVERY_PAGES_PER_QUERY_PER_PASS } from "@/lib/leadgen/discovery-continuation";
 import { getCampaignIcp, getCampaignVerticalProfile, type LeadgenVerticalId } from "@/lib/leadgen/verticals";
+import { createCampaignId, createPipelineRunId } from "@/lib/leadgen/campaign-id";
 import type { ClientProfileSnapshot } from "@/lib/leadgen/client-profile-types";
 import type {
   CampaignInput,
@@ -364,7 +365,7 @@ function buildCampaign(
   campaignId?: string,
 ): LeadgenCampaign {
   return {
-    id: campaignId ?? createRecordId("campaign", campaignInput.name, createdAt),
+    id: campaignId ?? createCampaignId(),
     pipeline_run_id: pipelineRunId,
     name: campaignInput.name,
     requested_by: campaignInput.requestedBy,
@@ -1128,11 +1129,7 @@ export async function runLeadDiscoveryEngine({
 }: RunLeadDiscoveryInput): Promise<LeadDiscoveryResult> {
   const deadlineAt = Date.now() + Math.max(10_000, runBudgetMs);
   const createdAt = new Date().toISOString();
-  const pipelineRunId = createRecordId(
-    "pipeline-run",
-    campaignInput.name,
-    createdAt,
-  );
+  const pipelineRunId = createPipelineRunId();
   const campaign = buildCampaign(
     campaignInput,
     pipelineRunId,

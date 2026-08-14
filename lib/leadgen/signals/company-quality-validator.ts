@@ -143,7 +143,7 @@ const nonEmployerEntityPattern =
   /\b(the\s+.+\s+network|network|ecosystem|community|portfolio|investors?|venture capital|vc firm|accelerator|marketplace|job board|talent network|\u0441\u0435\u0442\u044c|\u044d\u043a\u043e\u0441\u0438\u0441\u0442\u0435\u043c\u0430|\u0441\u043e\u043e\u0431\u0449\u0435\u0441\u0442\u0432\u043e|\u043f\u043e\u0440\u0442\u0444\u0435\u043b\u044c|\u0438\u043d\u0432\u0435\u0441\u0442\u043e\u0440)\b/i;
 
 const recruitingProviderPattern =
-  /\b(executive recruiting|recruiting firm|recruitment agency|staffing agency|talent agency|sales recruiting|revenue recruiting|recruiting services|recruitment services|headhunt(?:er|ing)|hire top sales talent|support your revenue teams|talent acquisition partner|one of our clients|our client is hiring)\b/i;
+  /(?:\b(?:executive recruiting|recruiting firm|recruitment agency|staffing agency|talent agency|sales recruiting|revenue recruiting|recruiting services|recruitment services|headhunt(?:er|ing)|hire top sales talent|support your revenue teams|talent acquisition partner|one of our clients|our client is hiring)\b|кадров(?:ое|ая|ый|ые)?\s+(?:агентство|компания|центр|метод|решения)|рекрутингов(?:ое|ая|ый|ые)?\s+(?:агентство|компания|центр)|агентство\s+по\s+подбору\s+персонала|подбор\s+персонала)/i;
 
 const jobWrapperDomainPattern =
   /\b(remote(?:rocketship|jobassistant|ok)|weworkremotely|remote\.co|flexjobs|otta|wellfound|startup\.jobs)\b/i;

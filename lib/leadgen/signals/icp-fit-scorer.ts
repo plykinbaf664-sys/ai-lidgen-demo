@@ -218,9 +218,7 @@ const exclusionRiskTerms = [
   "recruiting agency",
   "recruitment agency",
   "staffing agency",
-  "job board",
   "marketplace",
-  "directory",
   "outsourcing",
   "custom software development",
   "web development services",
@@ -232,11 +230,6 @@ const exclusionRiskTerms = [
   "digital agency",
   "web studio",
   "software engineer",
-  "developer",
-  "engineering",
-  "github",
-  "reddit",
-  "job board",
   "it-компания",
   "ит-компания",
   "saas-компания",
@@ -259,12 +252,10 @@ const exclusionRiskTerms = [
   "рекрутинговое агентство",
   "работный сайт",
   "джоб-борд",
-  "hh.ru",
-  "reddit.com",
 ];
 
 function normalizeText(value: string): string {
-  return value.toLowerCase();
+  return value.toLowerCase().replace(/ё/g, "е");
 }
 
 function unique(values: string[]): string[] {
@@ -275,8 +266,30 @@ function clampScore(score: number): number {
   return Math.min(Math.max(Math.round(score), 0), 100);
 }
 
+function lexicalKeys(value: string): string[] {
+  const ignored = new Set([
+    "and", "for", "the", "with", "для", "или", "как", "при", "под", "это",
+    "из", "на", "по", "от", "до", "за", "во", "не", "без",
+  ]);
+  return normalizeText(value)
+    .match(/[a-zа-я\d]{2,}/gi)
+    ?.filter((token) => !ignored.has(token))
+    ?.map((token) =>
+      /[а-я]/.test(token)
+        ? token.length >= 5 ? token.slice(0, 5) : token
+        : token.replace(/(?:ies|ing|ed|es|s)$/i, ""),
+    )
+    .filter((token) => token.length >= 2) ?? [];
+}
+
 function findMatches(text: string, terms: readonly string[]): string[] {
-  return terms.filter((term) => text.includes(normalizeText(term)));
+  const textKeys = new Set(lexicalKeys(text));
+  return terms.filter((term) => {
+    const normalizedTerm = normalizeText(term);
+    if (text.includes(normalizedTerm)) return true;
+    const termKeys = lexicalKeys(normalizedTerm);
+    return termKeys.length > 0 && termKeys.every((key) => textKeys.has(key));
+  });
 }
 
 function getEvidenceText(evidence: EvidenceResult[]): string {
@@ -297,8 +310,14 @@ function getEvidenceText(evidence: EvidenceResult[]): string {
   );
 }
 
-function calculateTermScore(matches: string[], pointsPerMatch: number, cap: number) {
-  return Math.min(matches.length * pointsPerMatch, cap);
+function calculateDimensionScore(
+  matches: string[],
+  firstMatch: number,
+  additionalMatch: number,
+  cap: number,
+) {
+  if (matches.length === 0) return 0;
+  return Math.min(firstMatch + (matches.length - 1) * additionalMatch, cap);
 }
 
 export function scoreIcpFit(
@@ -322,14 +341,26 @@ export function scoreIcpFit(
   }
 
   const text = getEvidenceText(evidence);
-  const matchedBusinessTerms = unique(findMatches(text, context?.businessTerms?.length ? context.businessTerms : businessFitTerms));
-  const matchedCommercialTerms = unique(findMatches(text, context?.commercialTerms?.length ? context.commercialTerms : commercialFitTerms));
-  const matchedPainTerms = unique(findMatches(text, context?.painTerms?.length ? context.painTerms : painFitTerms));
-  const matchedExclusionTerms = unique(findMatches(text, context ? context.exclusionTerms ?? [] : exclusionRiskTerms));
-  const businessFit = calculateTermScore(matchedBusinessTerms, 9, 36);
-  const commercialFit = calculateTermScore(matchedCommercialTerms, 7, 28);
-  const painFit = calculateTermScore(matchedPainTerms, 7, 35);
-  const exclusionRisk = calculateTermScore(matchedExclusionTerms, 14, 70);
+  const matchedBusinessTerms = unique(findMatches(text, [
+    ...businessFitTerms,
+    ...(context?.businessTerms ?? []),
+  ]));
+  const matchedCommercialTerms = unique(findMatches(text, [
+    ...commercialFitTerms,
+    ...(context?.commercialTerms ?? []),
+  ]));
+  const matchedPainTerms = unique(findMatches(text, [
+    ...painFitTerms,
+    ...(context?.painTerms ?? []),
+  ]));
+  const matchedExclusionTerms = unique(findMatches(text, [
+    ...exclusionRiskTerms,
+    ...(context?.exclusionTerms ?? []),
+  ]));
+  const businessFit = calculateDimensionScore(matchedBusinessTerms, 18, 7, 40);
+  const commercialFit = calculateDimensionScore(matchedCommercialTerms, 14, 6, 30);
+  const painFit = calculateDimensionScore(matchedPainTerms, 13, 6, 30);
+  const exclusionRisk = calculateDimensionScore(matchedExclusionTerms, 25, 12, 75);
 
   return {
     icp_fit_score: clampScore(

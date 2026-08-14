@@ -103,8 +103,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
       "HH \u0432\u0430\u043a\u0430\u043d\u0441\u0438\u044f \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u044f",
     priorityOffset: 0,
     termIndex: 0,
-    customQuery:
-      'site:hh.ru/vacancy "\u043c\u0435\u043d\u0435\u0434\u0436\u0435\u0440 \u043f\u043e \u043f\u0440\u043e\u0434\u0430\u0436\u0430\u043c" \u043a\u043b\u0438\u043d\u0438\u043a\u0430',
   },
   {
     angle: "ru_job_board",
@@ -119,8 +117,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
       "hh \u0432\u0430\u043a\u0430\u043d\u0441\u0438\u0438 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u044f \u0420\u041e\u041f",
     priorityOffset: 0,
     termIndex: 1,
-    customQuery:
-      'site:hh.ru/vacancy "\u0440\u0443\u043a\u043e\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u044c \u043e\u0442\u0434\u0435\u043b\u0430 \u043f\u0440\u043e\u0434\u0430\u0436" \u043f\u0440\u043e\u0438\u0437\u0432\u043e\u0434\u0441\u0442\u0432\u043e',
   },
   {
     angle: "ru_job_board",
@@ -135,8 +131,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
       "\u0432\u0430\u043a\u0430\u043d\u0441\u0438\u0438 \u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u044f",
     priorityOffset: 1,
     termIndex: 2,
-    customQuery:
-      'site:hh.ru/vacancy "\u043c\u0435\u043d\u0435\u0434\u0436\u0435\u0440 \u043f\u043e \u0440\u0430\u0431\u043e\u0442\u0435 \u0441 \u043a\u043b\u0438\u0435\u043d\u0442\u0430\u043c\u0438" \u043b\u043e\u0433\u0438\u0441\u0442\u0438\u043a\u0430',
   },
   {
     angle: "ru_job_board",
@@ -150,8 +144,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
       "\u0440\u0430\u0431\u043e\u0442\u0430 \u0432 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438 \u0432\u0430\u043a\u0430\u043d\u0441\u0438\u0438 CRM",
     priorityOffset: 2,
     termIndex: 3,
-    customQuery:
-      'site:hh.ru/vacancy "\u043e\u043f\u0435\u0440\u0430\u0442\u043e\u0440 \u043a\u043e\u043d\u0442\u0430\u043a\u0442\u043d\u043e\u0433\u043e \u0446\u0435\u043d\u0442\u0440\u0430" \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u044f',
   },
   {
     angle: "company_careers",
@@ -162,8 +154,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
     sourceHint: "\u0441\u0430\u0439\u0442 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438",
     priorityOffset: 2,
     termIndex: 4,
-    customQuery:
-      '"\u0438\u0449\u0435\u043c \u0432 \u043a\u043e\u043c\u0430\u043d\u0434\u0443" \u043e\u043d\u043b\u0430\u0439\u043d-\u0448\u043a\u043e\u043b\u0430',
   },
   {
     angle: "company_careers",
@@ -174,8 +164,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
     sourceHint: "\u0441\u0430\u0439\u0442 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438",
     priorityOffset: 3,
     termIndex: 5,
-    customQuery:
-      '"\u0440\u0430\u0441\u0448\u0438\u0440\u044f\u0435\u043c \u043a\u043e\u043c\u0430\u043d\u0434\u0443" "\u0440\u043e\u0437\u043d\u0438\u0447\u043d\u0430\u044f \u0441\u0435\u0442\u044c"',
   },
   {
     angle: "company_careers",
@@ -186,8 +174,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
     sourceHint: "\u0441\u0430\u0439\u0442 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438",
     priorityOffset: 3,
     termIndex: 6,
-    customQuery:
-      '"\u043f\u0440\u0438\u0433\u043b\u0430\u0448\u0430\u0435\u043c \u0432 \u043a\u043e\u043c\u0430\u043d\u0434\u0443" "\u0441\u0435\u0440\u0432\u0438\u0441\u043d\u0430\u044f \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u044f"',
   },
   {
     angle: "company_careers",
@@ -198,8 +184,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
     sourceHint: "\u0441\u0430\u0439\u0442 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438",
     priorityOffset: 4,
     termIndex: 7,
-    customQuery:
-      '"\u043e\u0442\u043a\u0440\u044b\u0442\u0430 \u0432\u0430\u043a\u0430\u043d\u0441\u0438\u044f" \u0434\u0435\u0432\u0435\u043b\u043e\u043f\u0435\u0440',
   },
   {
     angle: "company_careers",
@@ -210,8 +194,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
     sourceHint: "\u0441\u0430\u0439\u0442 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438",
     priorityOffset: 4,
     termIndex: 8,
-    customQuery:
-      '"\u0432 \u0441\u0432\u044f\u0437\u0438 \u0441 \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u0438\u0435\u043c" "\u0442\u0440\u0435\u0431\u0443\u0435\u0442\u0441\u044f" \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u044f',
   },
   {
     angle: "company_careers",
@@ -248,51 +230,6 @@ const hiringQueryAngles: SignalQueryAngleProfile[] = [
 ];
 
 const searchExclusions = "";
-
-const ruMarketHints: Record<SignalType, readonly string[]> = {
-  HIRING_SIGNAL: [
-    "hh \u0432\u0430\u043a\u0430\u043d\u0441\u0438\u0438 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u044f",
-    "\u043a\u0430\u0440\u044c\u0435\u0440\u043d\u0430\u044f \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0430 \u0432\u0430\u043a\u0430\u043d\u0441\u0438\u0438",
-    "\u043e\u0442\u043a\u0440\u044b\u0442\u0430 \u0432\u0430\u043a\u0430\u043d\u0441\u0438\u044f \u0440\u0443\u043a\u043e\u0432\u043e\u0434\u0438\u0442\u0435\u043b\u044c \u043f\u0440\u043e\u0434\u0430\u0436",
-    "\u0438\u0449\u0435\u043c \u0420\u041e\u041f \u043e\u0442\u0434\u0435\u043b \u043f\u0440\u043e\u0434\u0430\u0436",
-    "\u043f\u043e\u0434\u0434\u0435\u0440\u0436\u043a\u0430 \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432 \u0432\u0430\u043a\u0430\u043d\u0441\u0438\u044f",
-  ],
-  GO_TO_MARKET_SIGNAL: [
-    "\u0437\u0430\u043f\u0443\u0441\u043a \u043f\u0440\u043e\u0434\u0443\u043a\u0442\u0430",
-    "\u0432\u044b\u0448\u043b\u0438 \u043d\u0430 \u0440\u044b\u043d\u043e\u043a",
-    "\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u043b\u0438 \u043d\u043e\u0432\u043e\u0435 \u043d\u0430\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435",
-    "\u043d\u043e\u0432\u043e\u0441\u0442\u0438 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438",
-    "\u043f\u0440\u0435\u0441\u0441-\u0440\u0435\u043b\u0438\u0437",
-  ],
-  GROWTH_SIGNAL: [
-    "\u0440\u0430\u0441\u0448\u0438\u0440\u044f\u0435\u043c\u0441\u044f",
-    "\u043e\u0442\u043a\u0440\u044b\u043b\u0438 \u0444\u0438\u043b\u0438\u0430\u043b",
-    "\u043c\u0430\u0441\u0448\u0442\u0430\u0431\u0438\u0440\u0443\u0435\u043c \u043f\u0440\u043e\u0434\u0430\u0436\u0438",
-    "\u0440\u043e\u0441\u0442 \u043a\u043b\u0438\u0435\u043d\u0442\u0441\u043a\u043e\u0439 \u0431\u0430\u0437\u044b",
-    "\u0440\u0430\u0437\u0432\u0438\u0442\u0438\u0435 \u0431\u0438\u0437\u043d\u0435\u0441\u0430",
-  ],
-  CONTENT_SIGNAL: [
-    "\u0431\u043b\u043e\u0433 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438",
-    "\u043a\u0435\u0439\u0441 \u043a\u043b\u0438\u0435\u043d\u0442\u0430",
-    "\u0432\u0435\u0431\u0438\u043d\u0430\u0440 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u044f",
-    "vc \u0441\u0442\u0430\u0442\u044c\u044f \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u044f",
-    "habr \u0431\u043b\u043e\u0433 \u043a\u043e\u043c\u043f\u0430\u043d\u0438\u0438",
-  ],
-  TRAFFIC_SIGNAL: [
-    "\u043e\u0441\u0442\u0430\u0432\u0438\u0442\u044c \u0437\u0430\u044f\u0432\u043a\u0443",
-    "\u0437\u0430\u043f\u0438\u0441\u0430\u0442\u044c\u0441\u044f \u043d\u0430 \u0434\u0435\u043c\u043e",
-    "\u043f\u0440\u0438\u0432\u043b\u0435\u043a\u0430\u0435\u043c \u043a\u043b\u0438\u0435\u043d\u0442\u043e\u0432",
-    "\u043b\u0435\u043d\u0434\u0438\u043d\u0433",
-    "\u043f\u0440\u043e\u0431\u043d\u044b\u0439 \u043f\u0435\u0440\u0438\u043e\u0434",
-  ],
-  TECH_SIGNAL: [
-    "\u0430\u0432\u0442\u043e\u043c\u0430\u0442\u0438\u0437\u0430\u0446\u0438\u044f \u043f\u0440\u043e\u0446\u0435\u0441\u0441\u043e\u0432",
-    "\u0432\u043d\u0435\u0434\u0440\u0435\u043d\u0438\u0435 \u0418\u0418",
-    "\u0438\u043d\u0442\u0435\u0433\u0440\u0430\u0446\u0438\u0438 CRM",
-    "amoCRM Bitrix24",
-    "\u043e\u0431\u0440\u0430\u0431\u043e\u0442\u043a\u0430 \u043e\u0431\u0440\u0430\u0449\u0435\u043d\u0438\u0439",
-  ],
-};
 
 const signalSemanticProfiles: Record<SignalType, SignalSemanticProfile> = {
   HIRING_SIGNAL: {
@@ -500,7 +437,7 @@ function quote(term: string): string {
 }
 
 function pickByIndex(terms: readonly string[], index: number): string {
-  return terms[index % terms.length];
+  return terms.length ? terms[index % terms.length] : "";
 }
 
 function getQueryMarket(
@@ -526,7 +463,6 @@ function getWhyMarketSelected(
 function buildQueryParts(
   profile: SignalSemanticProfile,
   icp: SignalQueryIcp,
-  signalType: SignalType,
   language: SignalQueryLanguage,
   index: number,
   angleProfile?: SignalQueryAngleProfile,
@@ -535,25 +471,14 @@ function buildQueryParts(
     angleProfile?.eventPhrase ?? pickByIndex(profile.eventPhrases[language], index);
   const industry = pickByIndex(icp.industries[language], index);
   const contextPhrase =
-    angleProfile?.contextPhrase ??
+    pickByIndex(icp.keywords[language], index) ||
+    angleProfile?.contextPhrase ||
     pickByIndex(profile.contextPhrases[language], index + 1);
-  const marketHint =
-    language === "ru" ? pickByIndex(ruMarketHints[signalType], index) : null;
-
-  if (!angleProfile) {
-    return [
-      quote(eventPhrase),
-      industry,
-      searchExclusions,
-    ].filter(Boolean);
-  }
-
   return [
-    quote(eventPhrase),
-    industry,
+    industry ? quote(industry) : "",
+    eventPhrase,
     contextPhrase,
-    marketHint,
-    angleProfile.sourceHint,
+    searchExclusions,
   ].filter((part): part is string => Boolean(part));
 }
 
@@ -650,21 +575,13 @@ function buildHiringSignalQueries({
   const queries = hiringQueryAngles.map((angleProfile) =>
     createSignalQuery({
       signalType,
-      query:
-        [
-          angleProfile.customQuery ??
-            buildQueryParts(
-              profile,
-              icp,
-              signalType,
-              angleProfile.language,
-              angleProfile.termIndex,
-              angleProfile,
-            ).join(" "),
-          searchExclusions,
-        ]
-          .filter(Boolean)
-          .join(" "),
+      query: buildQueryParts(
+        profile,
+        icp,
+        angleProfile.language,
+        angleProfile.termIndex,
+        angleProfile,
+      ).join(" "),
       intent: angleProfile.intent,
       priority: Math.max(basePriority - angleProfile.priorityOffset, 1),
       language: angleProfile.language,
@@ -763,7 +680,6 @@ export function buildSignalQueries({
           query: buildQueryParts(
             profile,
             icp,
-            signalType,
             language,
             index,
           ).join(" "),
