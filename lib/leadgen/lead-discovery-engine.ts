@@ -203,11 +203,17 @@ function getDeferredPeopleDiscoveryResult(): PeopleDiscoveryResult {
 }
 
 function createRecordId(...parts: string[]): string {
-  return parts
-    .join("-")
-    .toLowerCase()
-    .replace(/[^a-z0-9\u0430-\u044f\u0451]+/gi, "-")
-    .replace(/(^-|-$)/g, "");
+  const source = parts.join("-").toLowerCase();
+  let hash = 2_166_136_261;
+  for (const character of source) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16_777_619);
+  }
+  const slug = source
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 96) || "record";
+  return `${slug}-${(hash >>> 0).toString(36)}`;
 }
 
 function getCandidateKey(candidate: LeadCandidate): string {

@@ -1288,11 +1288,17 @@ export function EmailOutreachQueue({
     }
   }
 
-  const maxBatch = Math.min(
-    readiness?.daily_remaining ?? 0,
-    readiness?.batch_limit ?? 50,
-    metrics.approved,
-  );
+  const initialQueueAvailable =
+    readiness?.smtp_connected === true &&
+    !readiness.queue_paused &&
+    (readiness.sending ?? 0) === 0;
+  const maxBatch = initialQueueAvailable
+    ? Math.min(
+        readiness?.daily_remaining ?? 0,
+        readiness?.batch_limit ?? 50,
+        metrics.approved,
+      )
+    : 0;
   const followupMaxBatch = Math.min(
     followupSummary?.approved ?? 0,
     readiness?.batch_limit ?? 20,
@@ -1360,7 +1366,13 @@ export function EmailOutreachQueue({
         ),
     )[0];
   const initialSendState =
-    metrics.approved > 0 && maxBatch === 0
+    !readiness?.smtp_connected
+      ? `Постановка новых писем в очередь заблокирована: ${readiness?.blockers.find((item) => item.startsWith("SMTP")) ?? "SMTP недоступен"}.`
+      : readiness.queue_paused
+        ? "Постановка новых писем в очередь приостановлена: очередь на паузе."
+        : (readiness.sending ?? 0) > 0
+          ? "Постановка новых писем в очередь временно недоступна: очередь уже выполняется."
+          : metrics.approved > 0 && maxBatch === 0
       ? (readiness?.daily_remaining ?? 0) < 1
         ? `Одобрено ${metrics.approved}, но в очередь не поставлено: дневной лимит ${readiness?.sent_today ?? 0} из ${readiness?.daily_limit ?? 100} исчерпан.`
         : readiness?.queue_paused

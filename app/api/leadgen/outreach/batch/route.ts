@@ -6,6 +6,7 @@ import {
 } from "@/lib/leadgen/outreach-storage";
 import { formatPublicError } from "@/lib/leadgen/error-format";
 import { leadgenProductionConfig } from "@/lib/leadgen/production-config";
+import { createEmailProvider } from "@/lib/leadgen/email-provider";
 import { runOutreachProcessorIteration } from "@/lib/leadgen/outreach-scheduler";
 import {
   getLocalDailySendStats,
@@ -65,6 +66,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { success: false, error: "Некорректный batch" },
         { status: 400 },
+      );
+    }
+    const smtp = await createEmailProvider().validateConnection();
+    if (!smtp.ok) {
+      return NextResponse.json(
+        { success: false, error: smtp.message },
+        { status: 409 },
       );
     }
     if (getOutreachDeliveryStorageMode() === "local") {
