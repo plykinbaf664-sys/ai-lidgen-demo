@@ -2133,3 +2133,225 @@ Follow-up будет:
 - соблюдать дневные лимиты.
 
 Проект перешёл из стадии технического прототипа в рабочую production-платформу для холодного B2B outbound.
+
+_________________________________________
+13.08.2026
+
+# Leadgen OS Demo
+
+Минимальная автономная версия Leadgen OS для демонстрации клиентам.
+
+## Зачем существует проект
+
+Система превращает ICP клиента в готовые B2B-лиды:
+
+ICP
+→ поиск компаний
+→ проверка соответствия
+→ поиск коммерческих сигналов
+→ поиск ЛПР
+→ поиск email
+→ персонализация
+→ письмо
+→ approval
+→ очередь
+→ SMTP-отправка
+→ follow-up / reply tracking
+
+Главный принцип: не собирать огромную базу компаний, а находить ограниченное количество релевантных лидов под конкретный ICP.
+
+---
+
+## Основной flow
+
+### 1. ICP
+
+Пользователь может:
+
+- заполнить ICP вручную;
+- загрузить PDF / DOCX / TXT.
+
+Документ не обязан соответствовать шаблону.
+
+Pipeline:
+
+document
+→ text extraction
+→ OpenAI semantic analysis
+→ adaptive ICP extraction
+→ editable preview
+→ save
+
+OpenAI должен извлекать только информацию, которая реально присутствует в документе, без выдумывания отсутствующих данных.
+
+---
+
+### 2. Segment
+
+Пользователь выбирает конкретный сегмент поиска.
+
+Например:
+
+- недвижимость;
+- медицина;
+- промышленность;
+- другой сегмент из ICP.
+
+Segment должен проходить через весь campaign/research pipeline.
+
+Компания другого сегмента не должна становиться готовым лидом.
+
+---
+
+### 3. Company Research
+
+Research строится из:
+
+ICP × selected segment.
+
+Система:
+
+1. формирует search hypotheses;
+2. ищет компании;
+3. проверяет соответствие ICP;
+4. ищет evidence;
+5. ищет коммерческие сигналы;
+6. квалифицирует кандидатов.
+
+Не добивать target нерелевантными компаниями ради количества.
+
+---
+
+### 4. LPR / Contact Intelligence
+
+После квалификации компании система пытается определить:
+
+company
+→ relevant role
+→ конкретный ЛПР
+→ имя
+→ персональный рабочий email
+
+Приоритет:
+
+verified personal email
+→ high-confidence personal email
+→ relevant department email
+→ general corporate email
+
+Не выдумывать человека или email.
+
+---
+
+### 5. Outreach
+
+Для квалифицированного лида формируется персонализированное письмо из:
+
+company
++ signal
++ evidence
++ LPR
++ business context
++ offer
+
+Письмо должно быть связано с реальной ситуацией конкретной компании, а не выглядеть как массовый шаблон.
+
+---
+
+## Email Infrastructure
+
+Система использует:
+
+- SMTP — отправка;
+- IMAP — reply/sent verification;
+- approval перед отправкой;
+- локальную очередь;
+- последовательный processor;
+- follow-ups;
+- Message-ID;
+- статусы и ошибки.
+
+Первичные письма и follow-ups разделены.
+
+Follow-up не должен отправляться без необходимых проверок ответа.
+
+---
+
+## Storage
+
+Demo специально не должен зависеть от тяжёлой внешней БД.
+
+Использовать минимальное локальное persistent storage.
+
+Хранить только данные, необходимые для:
+
+- ICP;
+- campaigns;
+- leads;
+- outreach;
+- queue;
+- statuses;
+- deduplication;
+- Message-ID;
+- минимальной диагностики.
+
+Не хранить огромные raw research dumps и дублирующие данные.
+
+---
+
+## Security
+
+Production считается готовым только если:
+
+- приложение закрыто login;
+- private API защищены server-side;
+- secrets остаются server-side;
+- uploads валидируются;
+- crawler защищён от SSRF;
+- database/storage нельзя скачать через web;
+- пользовательские данные не рендерятся как unsafe HTML;
+- login защищён от brute force;
+- production работает через HTTPS;
+- raw errors не раскрывают устройство сервера;
+- Critical/High findings отсутствуют.
+
+`.env.local` никогда не коммитить.
+
+---
+
+## Production
+
+Текущая схема:
+
+GitHub
+→ VPS
+→ Next.js
+→ PM2
+→ Nginx
+
+Production project:
+
+`/var/www/ai-lidgen-demo`
+
+PM2 process:
+
+`leadgen-demo`
+
+После изменения production env PM2 должен быть перезапущен с актуальным env.
+
+---
+
+## Ключевые env
+
+Проект использует server-side переменные для:
+
+- AUTH;
+- OpenAI;
+- SMTP;
+- IMAP;
+- email test mode;
+- production configuration.
+
+Secrets никогда не хардкодить.
+
+
