@@ -2053,7 +2053,9 @@ export function EmailOutreachQueue({
                         <div><dt>Источник контакта</dt><dd>{entry.email_source_url ? <a href={entry.email_source_url} rel="noreferrer" target="_blank">{entry.email_source_label || entry.email_source_url}</a> : "—"}</dd></div>
                         <div><dt>ЛПР</dt><dd>{contactIntelligence?.person_name || entry.recipient_name || "—"}{contactIntelligence?.person_role || entry.recipient_role ? ` · ${contactIntelligence?.person_role || entry.recipient_role}` : ""}</dd></div>
                         <div><dt>Почему выбран</dt><dd>{contactIntelligence?.why_this_person || "Корпоративный email подтверждён; поиск персонального ЛПР не завершён."}</dd></div>
-                        <div><dt>Надёжность</dt><dd>{contactIntelligence?.confidence ?? (sourceContact?.metadata.email_mx_verified === true ? "Подтверждённый корпоративный email" : "—")}</dd></div>
+                        <div><dt>Тип email</dt><dd>{contactIntelligence?.email_type_label ?? (entry.email_type === "work_email" ? "PERSONAL" : "GENERAL")}</dd></div>
+                        <div><dt>Confidence</dt><dd>{contactIntelligence ? contactIntelligence.email_confidence ?? "INFERRED" : sourceContact?.metadata.email_mx_verified === true ? "VERIFIED" : "—"}</dd></div>
+                        <div><dt>Evidence</dt><dd>{contactIntelligence?.evidence.find((item) => item.kind === "email" || item.kind === "pattern")?.summary ?? "Публичное подтверждение персонального адреса отсутствует."}</dd></div>
                         <div><dt>Как найден</dt><dd>{contactIntelligence?.verification_methods.join(" + ") || (typeof sourceContact?.metadata.email_kind === "string" ? sourceContact.metadata.email_kind : entry.readiness)}</dd></div>
                         <div><dt>Статус проверки</dt><dd>{sourceContact?.metadata.email_mx_verified === true ? "Домен подтверждён, MX найден" : "Домен подтверждён"}</dd></div>
                         <div><dt>Контакт</dt><dd>{entry.recipient_name || entry.recipient_role || "Общий вход"} · {entry.email || "email не найден"}</dd></div>
@@ -2068,7 +2070,7 @@ export function EmailOutreachQueue({
                           {contactIntelligence.evidence.length ? (
                             <ul>{contactIntelligence.evidence.map((item, index) => <li key={`${item.kind}-${index}`}>{item.summary}</li>)}</ul>
                           ) : null}
-                          {contactIntelligence.generated_candidates.length ? <p>Неподтверждённые кандидаты: {contactIntelligence.generated_candidates.join(", ")}</p> : null}
+                          {contactIntelligence.generated_candidate_details?.length ? <p>Кандидаты resolver: {contactIntelligence.generated_candidate_details.map((candidate) => `${candidate.email} (${candidate.confidence})`).join(", ")}</p> : null}
                         </details>
                       ) : null}
                       {entry.status === "queued" ? (

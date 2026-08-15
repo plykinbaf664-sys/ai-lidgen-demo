@@ -9,8 +9,20 @@ import type {
   PeopleDiscoveryResult,
   PersonCandidate,
 } from "@/lib/leadgen/types";
+import {
+  resolvePersonalLprEmail,
+  type MxVerification,
+} from "@/lib/leadgen/personal-lpr-email-resolver";
 
-const mxCache = new Map<string, Promise<boolean>>();
+export {
+  applyCorporateEmailPattern,
+  inferCorporateEmailPattern,
+  transliteratePersonPart,
+} from "@/lib/leadgen/personal-lpr-email-resolver";
+
+const MX_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
+const MX_TIMEOUT_MS = 2_500;
+const mxCache = new Map<string, { expiresAt: number; value: Promise<MxVerification> }>();
 
 function normalize(value: string | null | undefined): string {
   return (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -36,93 +48,26 @@ function getEmailDomain(email: string | null | undefined): string | null {
   return parts.length === 2 && parts[1] ? parts[1] : null;
 }
 
-async function domainHasMx(domain: string | null): Promise<boolean> {
+async function domainHasMx(domain: string | null): Promise<MxVerification> {
   if (!domain) return false;
-  if (!mxCache.has(domain)) {
-    mxCache.set(
-      domain,
-      resolveMx(domain).then((records) => records.length > 0).catch(() => false),
-    );
-  }
-  return mxCache.get(domain)!;
-}
-
-const transliteration: Record<string, string> = {
-  а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "e", ж: "zh",
-  з: "z", и: "i", й: "i", к: "k", л: "l", м: "m", н: "n", о: "o",
-  п: "p", р: "r", с: "s", т: "t", у: "u", ф: "f", х: "kh", ц: "ts",
-  ч: "ch", ш: "sh", щ: "shch", ъ: "", ы: "y", ь: "", э: "e", ю: "yu", я: "ya",
-};
-
-export function transliteratePersonPart(value: string): string {
-  return normalize(value)
-    .split("")
-    .map((character) => transliteration[character] ?? character)
-    .join("")
-    .replace(/[^a-z0-9]+/g, "");
-}
-
-type PatternEvidence = { fullName: string; email: string };
-
-function derivePattern(evidence: PatternEvidence): string | null {
-  const [first = "", last = "", middle = ""] = evidence.fullName.trim().split(/\s+/);
-  const tokens = {
-    first: transliteratePersonPart(first),
-    last: transliteratePersonPart(last),
-    middle: transliteratePersonPart(middle),
-  };
-  let local = evidence.email.toLowerCase().split("@")[0] ?? "";
-  if (!local || !tokens.first || !tokens.last) return null;
-
-  const replacements: Array<[string, string]> = [
-    [tokens.first, "{first}"],
-    [tokens.last, "{last}"],
-    [tokens.middle, "{middle}"],
-  ];
-  for (const [value, token] of replacements.sort((a, b) => b[0].length - a[0].length)) {
-    if (value.length >= 2) local = local.replaceAll(value, token);
-  }
-  local = local
-    .replace(new RegExp(`(^|[._-])${tokens.first[0]}(?=[._-]|\\{last\\})`), "$1{first_initial}")
-    .replace(new RegExp(`(^|[._-])${tokens.last[0]}(?=[._-]|\\{first\\})`), "$1{last_initial}");
-  return local.includes("{first") || local.includes("{last") ? local : null;
-}
-
-export function inferCorporateEmailPattern(
-  evidence: PatternEvidence[],
-): { pattern: string | null; support: number } {
-  const counts = new Map<string, number>();
-  for (const item of evidence) {
-    const pattern = derivePattern(item);
-    if (pattern) counts.set(pattern, (counts.get(pattern) ?? 0) + 1);
-  }
-  const best = [...counts.entries()].sort((left, right) => right[1] - left[1])[0];
-  return { pattern: best?.[0] ?? null, support: best?.[1] ?? 0 };
-}
-
-export function applyCorporateEmailPattern({
-  pattern,
-  fullName,
-  domain,
-}: {
-  pattern: string;
-  fullName: string;
-  domain: string;
-}): string | null {
-  const [first = "", last = "", middle = ""] = fullName.trim().split(/\s+/);
-  const values = {
-    first: transliteratePersonPart(first),
-    last: transliteratePersonPart(last),
-    middle: transliteratePersonPart(middle),
-  };
-  if (!values.first || !values.last) return null;
-  const local = pattern
-    .replaceAll("{first}", values.first)
-    .replaceAll("{last}", values.last)
-    .replaceAll("{middle}", values.middle)
-    .replaceAll("{first_initial}", values.first[0])
-    .replaceAll("{last_initial}", values.last[0]);
-  return /^[a-z0-9][a-z0-9._-]*$/.test(local) ? `${local}@${domain}` : null;
+  const cached = mxCache.get(domain);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
+  const value = (async (): Promise<MxVerification> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const records = await Promise.race([
+          resolveMx(domain),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("mx_timeout")), MX_TIMEOUT_MS)),
+        ]);
+        return records.length > 0;
+      } catch (error) {
+        if (error instanceof Error && /ENOTFOUND|ENODATA/i.test(error.message)) return false;
+      }
+    }
+    return "unknown";
+  })();
+  mxCache.set(domain, { expiresAt: Date.now() + MX_CACHE_TTL_MS, value });
+  return value;
 }
 
 function sourceLooksLikeRegistry(url: string | null | undefined): boolean {
@@ -155,7 +100,7 @@ export async function evaluateAdaptiveContactIntelligence({
   peopleDiscovery: PeopleDiscoveryResult;
   contactDiscovery: ContactDiscoveryResult;
   knownPersonKeys?: Iterable<string>;
-  verifyMx?: (domain: string | null) => Promise<boolean>;
+  verifyMx?: (domain: string | null) => Promise<MxVerification>;
 }): Promise<ContactIntelligenceResult> {
   const person = choosePerson(peopleDiscovery);
   const officialDomain = getDomain(
@@ -168,15 +113,16 @@ export async function evaluateAdaptiveContactIntelligence({
       return Number(normalize(right.full_name) === primaryName) - Number(normalize(left.full_name) === primaryName) ||
         right.confidence_score - left.confidence_score;
     });
-  const direct = directContacts[0] ?? null;
-  const selectedPersonName = direct?.full_name ?? person?.full_name ?? null;
-  const selectedRole = direct?.role_title ?? person?.role_title ?? null;
+  const direct = person
+    ? directContacts.find((contact) => normalize(contact.full_name) === normalize(person.full_name)) ?? null
+    : directContacts[0] ?? null;
+  const selectedPersonName = person?.full_name ?? direct?.full_name ?? null;
+  const selectedRole = person?.role_title ?? direct?.role_title ?? null;
   const isRoutingContact = direct?.metadata.contact_route === "corporate_router";
   const duplicatePerson = selectedPersonName
     ? new Set(knownPersonKeys).has(getContactedPersonKey(company.company_name, selectedPersonName))
     : false;
   const directDomain = getEmailDomain(direct?.email);
-  const mxVerified = await verifyMx(directDomain ?? officialDomain);
   const sourceDomain = getDomain(direct?.source_url);
   const aliasPublishedOnOfficialSite = Boolean(
     directDomain && officialDomain && directDomain !== officialDomain && sourceDomain === officialDomain,
@@ -186,8 +132,49 @@ export async function evaluateAdaptiveContactIntelligence({
   )) || aliasPublishedOnOfficialSite;
   const directPublished = Boolean(
     direct?.source_url && !sourceLooksLikeRegistry(direct.source_url) &&
-      (direct.metadata.email_extraction_method || direct.metadata.email_classification || direct.metadata.people_discovery_source),
+      (direct.metadata.email_extraction_method ||
+        direct.metadata.email_classification ||
+        direct.metadata.public_contact_verified === true),
   );
+  const patternEvidence = directContacts
+    .filter((contact): contact is LeadgenContact & { full_name: string; email: string } => Boolean(
+      contact.full_name && contact.email && contact.source_url &&
+      !sourceLooksLikeRegistry(contact.source_url) &&
+      (contact.metadata.email_extraction_method ||
+        contact.metadata.email_classification ||
+        contact.metadata.public_contact_verified === true),
+    ))
+    .map((contact) => ({ fullName: contact.full_name, email: contact.email }));
+  const fallbackContact = contactDiscovery.fallback_entry;
+  const catchAll = contactDiscovery.contacts.some((contact) => contact.metadata.email_catch_all === true)
+    ? "detected" as const
+    : contactDiscovery.contacts.some((contact) => contact.metadata.email_catch_all === false)
+      ? "not_detected" as const
+      : "unknown" as const;
+  const deliveryFeedback = contactDiscovery.contacts.flatMap((contact) => {
+    const status = contact.metadata.delivery_feedback_status;
+    return contact.email && (status === "accepted_no_hard_bounce" || status === "hard_bounce")
+      ? [{ email: contact.email, status: status as "accepted_no_hard_bounce" | "hard_bounce" }]
+      : [];
+  });
+  const resolution = await resolvePersonalLprEmail({
+    person: selectedPersonName && (person?.confidence_score ?? direct?.confidence_score ?? 0) >= 70
+      ? { fullName: selectedPersonName, role: selectedRole }
+      : null,
+    corporateDomain: officialDomain,
+    publicPersonalEmail: direct?.email
+      ? { email: direct.email, reliableEvidence: directPublished && direct.confidence_score >= 70, domainAccepted: domainMatch }
+      : null,
+    knownCorporateEmails: patternEvidence,
+    generalFallback: fallbackContact?.email
+      ? { email: fallbackContact.email, publiclyConfirmed: Boolean(fallbackContact.source_url) }
+      : null,
+    catchAll,
+    deliveryFeedback,
+    verifyMx,
+  });
+  const selected = resolution.selected;
+  const mxVerified = resolution.mx === "confirmed";
   const personEvidence = person?.evidence ?? [];
   const evidence: ContactIntelligenceEvidence[] = [];
   if (selectedPersonName) evidence.push({ kind: "person", source_url: direct?.source_url ?? null, summary: `${selectedPersonName} подтверждён публичным источником.` });
@@ -203,27 +190,26 @@ export async function evaluateAdaptiveContactIntelligence({
   if (mxVerified) evidence.push({ kind: "verification", source_url: null, summary: "Для домена найдены MX-записи; писем при проверке не отправлялось." });
   for (const item of personEvidence.slice(0, 2)) evidence.push({ kind: "person", source_url: direct?.source_url ?? null, summary: item.slice(0, 180) });
 
-  const patternEvidence = directContacts
-    .filter((contact): contact is LeadgenContact & { full_name: string; email: string } => Boolean(contact.full_name && contact.email))
-    .map((contact) => ({ fullName: contact.full_name, email: contact.email }));
-  const inferred = inferCorporateEmailPattern(patternEvidence);
-  const generated = !direct?.email && person && officialDomain && inferred.pattern && inferred.support >= 2
-    ? applyCorporateEmailPattern({ pattern: inferred.pattern, fullName: person.full_name, domain: officialDomain })
-    : null;
-  if (inferred.pattern) evidence.push({ kind: "pattern", source_url: contactDiscovery.official_website, summary: `Corporate pattern выведен из ${inferred.support} опубликованных соответствий ФИО и email.` });
+  if (resolution.pattern.pattern) evidence.push({ kind: "pattern", source_url: contactDiscovery.official_website, summary: `Corporate pattern выведен из ${resolution.pattern.evidenceCount} опубликованных соответствий ФИО и email.` });
+  if (selected?.confidence === "HIGH_CONFIDENCE") evidence.push({ kind: "verification", source_url: contactDiscovery.official_website, summary: "Персональный email соответствует подтверждённому corporate pattern; существование mailbox не объявляется VERIFIED." });
 
-  const directHigh = Boolean(
-    direct?.email && selectedPersonName && selectedRole && domainMatch && mxVerified &&
-      directPublished && direct.confidence_score >= 70 && !duplicatePerson,
+  const selectedIsDirect = Boolean(selected && direct?.email === selected.email);
+  const selectedIsFallback = Boolean(selected && fallbackContact?.email === selected.email);
+  const personalReady = Boolean(
+    selected?.ready && selected.emailType === "PERSONAL" && selectedPersonName && selectedRole &&
+    (selectedIsDirect ? (direct?.confidence_score ?? 0) >= 70 : (person?.confidence_score ?? 0) >= 70) &&
+    !duplicatePerson,
   );
-  const confidence = directHigh
+  const confidence = personalReady
     ? "HIGH"
-    : direct?.email || generated
-      ? "MEDIUM"
-      : contactDiscovery.fallback_entry?.email
-        ? "LOW"
+    : selected?.emailType === "GENERAL"
+      ? "LOW"
+      : resolution.candidates.length
+        ? "MEDIUM"
         : "UNRESOLVED";
-  const fallback = contactDiscovery.fallback_entry?.email ?? null;
+  const generatedCandidates = resolution.candidates.filter(
+    (candidate) => candidate.emailType === "PERSONAL" && candidate.email !== direct?.email,
+  );
 
   return {
     business_problem: decisionMaker.expected_pain,
@@ -237,28 +223,29 @@ export async function evaluateAdaptiveContactIntelligence({
       : decisionMaker.reasoning,
     person_name: selectedPersonName,
     person_role: selectedRole,
-    email: direct?.email ?? generated ?? fallback,
-    email_type: direct?.email
+    email: selected?.email ?? null,
+    email_type: selectedIsDirect
       ? isRoutingContact ? "corporate_router" : "public_personal"
-      : generated
+      : selected?.emailType === "PERSONAL"
         ? "pattern_candidate"
-        : fallback
-          ? contactDiscovery.fallback_entry?.contact_type === "generic_email" ? "generic_fallback" : "department_fallback"
+        : selectedIsFallback
+          ? fallbackContact?.contact_type === "generic_email" ? "generic_fallback" : "department_fallback"
           : "none",
-    verification_methods: [
-      ...(domainMatch ? ["corporate_domain_match"] : []),
-      ...(mxVerified ? ["mx"] : []),
-      ...(directPublished ? ["public_evidence"] : []),
-      ...(inferred.pattern ? ["corporate_pattern"] : []),
-    ],
+    email_type_label: isRoutingContact && selectedIsDirect ? "DEPARTMENT" : selected?.emailType ?? null,
+    email_confidence: selected?.confidence ?? null,
+    verification_methods: selected?.verificationMethods ?? [],
     confidence,
-    readiness: directHigh ? "contact_ready" : direct?.email || generated ? "manual_verification" : fallback ? "fallback_only" : "unresolved",
+    readiness: personalReady ? "contact_ready" : selected?.emailType === "GENERAL" ? "fallback_only" : resolution.candidates.length ? "manual_verification" : "unresolved",
     evidence: compactEvidence(evidence),
-    inferred_pattern: inferred.pattern,
-    pattern_support: inferred.support,
-    generated_candidates: generated ? [generated] : [],
-    catch_all: "unknown",
+    inferred_pattern: resolution.pattern.pattern,
+    pattern_support: resolution.pattern.evidenceCount,
+    pattern_confidence: resolution.pattern.confidence,
+    generated_candidates: generatedCandidates.map((candidate) => candidate.email),
+    generated_candidate_details: generatedCandidates,
+    catch_all: resolution.catchAll,
     smtp_verification: "not_performed",
+    resolver_cache_hit: resolution.cacheHit,
+    resolver_checked_at: resolution.checkedAt,
     strategies_attempted: [
       "dynamic_role_resolution",
       "adaptive_public_person_search",
@@ -268,17 +255,7 @@ export async function evaluateAdaptiveContactIntelligence({
     ],
     stop_reason: duplicatePerson
       ? "duplicate_person"
-      : directHigh
-        ? "contact_ready_high_confidence"
-        : direct?.email
-          ? "personal_email_requires_manual_verification"
-          : generated
-            ? "generated_candidate_not_publicly_confirmed"
-            : person
-              ? "person_found_personal_email_unresolved"
-              : fallback
-                ? "generic_fallback_does_not_qualify"
-                : "no_material_next_step_available",
+      : resolution.stopReason,
   };
 }
 
@@ -302,15 +279,21 @@ export function createUnresolvedContactIntelligence({
     person_role: person?.role_title ?? null,
     email: null,
     email_type: "none",
+    email_type_label: null,
+    email_confidence: null,
     verification_methods: [],
     confidence: "UNRESOLVED",
     readiness: "unresolved",
     evidence: [],
     inferred_pattern: null,
     pattern_support: 0,
+    pattern_confidence: null,
     generated_candidates: [],
+    generated_candidate_details: [],
     catch_all: "unknown",
     smtp_verification: "not_performed",
+    resolver_cache_hit: false,
+    resolver_checked_at: null,
     strategies_attempted: ["contact_evaluation"],
     stop_reason: stopReason,
   };
@@ -320,11 +303,52 @@ export function attachContactIntelligence(
   result: ContactDiscoveryResult,
   intelligence: ContactIntelligenceResult,
 ): ContactDiscoveryResult {
-  const contacts = result.contacts.map((contact) => ({
+  const shouldCreateResolvedPersonal = Boolean(
+    intelligence.email &&
+    intelligence.email_type === "pattern_candidate" &&
+    intelligence.email_confidence === "HIGH_CONFIDENCE" &&
+    intelligence.readiness === "contact_ready" &&
+    !result.contacts.some((contact) => contact.email === intelligence.email),
+  );
+  const template = result.best_available_entry;
+  const generatedContact: LeadgenContact | null = shouldCreateResolvedPersonal
+    ? {
+        ...template,
+        id: `resolver-${template.id.replace(/[^a-z0-9_.:-]+/gi, "-").slice(-96)}`,
+        contact_type: "work_email",
+        full_name: intelligence.person_name,
+        role_title: intelligence.person_role,
+        department: null,
+        email: intelligence.email,
+        linkedin_url: null,
+        telegram_url: null,
+        contact_url: null,
+        source_url: result.official_website,
+        source_label: "Personal LPR Email Resolver",
+        confidence_score: 82,
+        is_primary: true,
+        metadata: {
+          ...template.metadata,
+          entry_role: "best_outreach_entry",
+          people_discovery_role: "primary",
+          email_classification: "pattern_high_confidence",
+          email_status: "personal_email_ready",
+          email_mx_verified: true,
+          email_domain_match_reason: "official_domain",
+          email_validation_status: "pattern_and_mx_confirmed",
+          contact_intelligence: intelligence,
+        },
+      }
+    : null;
+  const contacts = [...result.contacts, ...(generatedContact ? [generatedContact] : [])].map((contact): LeadgenContact => ({
     ...contact,
+    is_primary: generatedContact ? contact.id === generatedContact.id : contact.is_primary,
     metadata: {
       ...contact.metadata,
-      ...((contact.email === intelligence.email && contact.contact_type === "work_email") ||
+      ...(generatedContact && contact.id === result.best_outreach_entry?.id
+        ? { entry_role: "other_entry" }
+        : {}),
+      ...((contact.email && contact.email === intelligence.email) ||
       (!intelligence.email && contact.id === result.best_available_entry.id)
         ? { contact_intelligence: intelligence }
         : {}),
@@ -334,17 +358,21 @@ export function attachContactIntelligence(
   return {
     ...result,
     contacts,
-    best_available_entry: byId.get(result.best_available_entry.id) ?? result.best_available_entry,
-    best_outreach_entry: result.best_outreach_entry ? byId.get(result.best_outreach_entry.id) ?? result.best_outreach_entry : null,
+    best_available_entry: generatedContact ?? byId.get(result.best_available_entry.id) ?? result.best_available_entry,
+    best_outreach_entry: generatedContact ?? (result.best_outreach_entry ? byId.get(result.best_outreach_entry.id) ?? result.best_outreach_entry : null),
     fallback_entry: result.fallback_entry ? byId.get(result.fallback_entry.id) ?? result.fallback_entry : null,
     alternative_channels: result.alternative_channels.map((contact) => byId.get(contact.id) ?? contact),
   };
 }
 
 export function isContactReadyPerson(contact: LeadgenContact): boolean {
+  const intelligence = contact.metadata.contact_intelligence;
+  if (!intelligence) return false;
   return contact.contact_type === "work_email" && Boolean(contact.email && contact.full_name && contact.role_title) &&
-    contact.metadata.contact_intelligence?.confidence === "HIGH" &&
-    contact.metadata.contact_intelligence.readiness === "contact_ready";
+    (intelligence.email_confidence
+      ? ["VERIFIED", "HIGH_CONFIDENCE"].includes(intelligence.email_confidence)
+      : intelligence.confidence === "HIGH") &&
+    intelligence.readiness === "contact_ready";
 }
 
 export function isConfirmedOutreachEmail(contact: LeadgenContact): boolean {

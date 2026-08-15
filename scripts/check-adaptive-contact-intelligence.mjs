@@ -11,6 +11,10 @@ import {
 } from "../lib/leadgen/adaptive-contact-intelligence.ts";
 import { discoverDecisionMaker } from "../lib/leadgen/decision-maker-discovery.ts";
 import { chooseBestOutreachEntry } from "../lib/leadgen/contact-channel-ranking.ts";
+import {
+  clearPersonalLprEmailResolverCache,
+  resolvePersonalLprEmail,
+} from "../lib/leadgen/personal-lpr-email-resolver.ts";
 
 const pattern = inferCorporateEmailPattern([
   { fullName: "Иван Петров", email: "ivan.petrov@acme.ru" },
@@ -85,7 +89,10 @@ const intelligence = await evaluateAdaptiveContactIntelligence({
   verifyMx: async () => true,
 });
 assert.equal(intelligence.confidence, "HIGH");
+assert.equal(intelligence.email_confidence, "VERIFIED");
+assert.equal(intelligence.email_type_label, "PERSONAL");
 assert.equal(intelligence.readiness, "contact_ready");
+assert.equal(intelligence.generated_candidates.length, 0);
 assert.equal(intelligence.smtp_verification, "not_performed");
 assert.equal(intelligence.catch_all, "unknown");
 const decorated = attachContactIntelligence(discovery, intelligence);
@@ -124,6 +131,7 @@ const genericResult = await evaluateAdaptiveContactIntelligence({
   verifyMx: async () => true,
 });
 assert.equal(genericResult.readiness, "fallback_only");
+assert.equal(genericResult.email_confidence, "GENERAL");
 assert.equal(isContactReadyPerson(generic), false);
 assert.equal(isConfirmedOutreachEmail(generic), false);
 const confirmedGeneric = {
@@ -168,6 +176,7 @@ const routerResult = await evaluateAdaptiveContactIntelligence({
 });
 assert.equal(routerResult.readiness, "contact_ready");
 assert.equal(routerResult.email_type, "corporate_router");
+assert.equal(routerResult.email_type_label, "DEPARTMENT");
 assert.match(routerResult.why_this_person, /маршрутизатор/);
 assert.doesNotMatch(routerResult.why_this_person, /владеет этим процессом/);
 assert.equal(
@@ -177,6 +186,64 @@ assert.equal(
   ])?.id,
   routerContact.id,
 );
+
+clearPersonalLprEmailResolverCache();
+const patternResolution = await resolvePersonalLprEmail({
+  person: { fullName: "Алексей Спешилов", role: "Продуктолог" },
+  corporateDomain: "pattern-example.ru",
+  knownCorporateEmails: [
+    { fullName: "Иван Петров", email: "ivan.petrov@pattern-example.ru" },
+    { fullName: "Анна Смирнова", email: "anna.smirnova@pattern-example.ru" },
+  ],
+  generalFallback: { email: "info@pattern-example.ru", publiclyConfirmed: true },
+  catchAll: "detected",
+  verifyMx: async () => true,
+});
+assert.equal(patternResolution.pattern.evidenceCount, 2);
+assert.equal(patternResolution.selected?.email, "aleksei.speshilov@pattern-example.ru");
+assert.equal(patternResolution.selected?.confidence, "HIGH_CONFIDENCE");
+assert.notEqual(patternResolution.selected?.confidence, "VERIFIED");
+assert.ok(patternResolution.selected?.verificationMethods.includes("catch_all_not_mailbox_proof"));
+
+const inferredWithFallback = await resolvePersonalLprEmail({
+  person: { fullName: "Олег Сидоров", role: "Коммерческий директор" },
+  corporateDomain: "inferred-example.ru",
+  knownCorporateEmails: [],
+  generalFallback: { email: "info@inferred-example.ru", publiclyConfirmed: true },
+  verifyMx: async () => true,
+});
+assert.equal(inferredWithFallback.selected?.email, "info@inferred-example.ru");
+assert.equal(inferredWithFallback.selected?.confidence, "GENERAL");
+assert.ok(inferredWithFallback.candidates.filter((item) => item.emailType === "PERSONAL").every((item) => item.confidence === "INFERRED"));
+assert.ok(inferredWithFallback.candidates.filter((item) => item.emailType === "PERSONAL").length <= 3);
+
+const invalidMailbox = await resolvePersonalLprEmail({
+  person: { fullName: "Пётр Иванов", role: "Директор" },
+  corporateDomain: "invalid-example.ru",
+  generalFallback: { email: "info@invalid-example.ru", publiclyConfirmed: true },
+  verifyMx: async () => false,
+});
+assert.equal(invalidMailbox.selected, null);
+assert.ok(invalidMailbox.candidates.every((item) => item.confidence === "INVALID"));
+
+const timeoutResolution = await resolvePersonalLprEmail({
+  person: { fullName: "Мария Орлова", role: "CMO" },
+  corporateDomain: "timeout-example.ru",
+  verifyMx: async () => { throw new Error("timeout"); },
+});
+assert.equal(timeoutResolution.mx, "unknown");
+assert.equal(timeoutResolution.selected, null);
+
+clearPersonalLprEmailResolverCache();
+let mxCalls = 0;
+const cachedInput = {
+  person: { fullName: "Cache Person", role: "CEO" },
+  corporateDomain: "cache-example.ru",
+  verifyMx: async () => { mxCalls += 1; return true; },
+};
+assert.equal((await resolvePersonalLprEmail(cachedInput)).cacheHit, false);
+assert.equal((await resolvePersonalLprEmail(cachedInput)).cacheHit, true);
+assert.equal(mxCalls, 1);
 
 const candidate = {
   company_name: "Example",

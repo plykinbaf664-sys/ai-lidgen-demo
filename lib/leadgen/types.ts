@@ -450,6 +450,8 @@ export type ProductionDiscoveryStats = {
 };
 
 export type ContactConfidenceLevel = "HIGH" | "MEDIUM" | "LOW" | "UNRESOLVED";
+export type LprEmailConfidence = "VERIFIED" | "HIGH_CONFIDENCE" | "INFERRED" | "GENERAL" | "INVALID";
+export type LprEmailType = "PERSONAL" | "DEPARTMENT" | "GENERAL";
 
 export type ContactIntelligenceEvidence = {
   kind: "person" | "role" | "email" | "domain" | "pattern" | "verification";
@@ -467,15 +469,27 @@ export type ContactIntelligenceResult = {
   person_role: string | null;
   email: string | null;
   email_type: "public_personal" | "corporate_router" | "pattern_candidate" | "department_fallback" | "generic_fallback" | "none";
+  email_type_label: LprEmailType | null;
+  email_confidence: LprEmailConfidence | null;
   verification_methods: string[];
   confidence: ContactConfidenceLevel;
   readiness: "contact_ready" | "manual_verification" | "fallback_only" | "unresolved";
   evidence: ContactIntelligenceEvidence[];
   inferred_pattern: string | null;
   pattern_support: number;
+  pattern_confidence: "HIGH_CONFIDENCE" | "INFERRED" | null;
   generated_candidates: string[];
+  generated_candidate_details: Array<{
+    email: string;
+    emailType: LprEmailType;
+    confidence: LprEmailConfidence;
+    ready: boolean;
+    verificationMethods: string[];
+  }>;
   catch_all: "unknown" | "detected" | "not_detected";
   smtp_verification: "not_performed" | "ambiguous" | "verified" | "rejected";
+  resolver_cache_hit: boolean;
+  resolver_checked_at: string | null;
   strategies_attempted: string[];
   stop_reason: string;
 };

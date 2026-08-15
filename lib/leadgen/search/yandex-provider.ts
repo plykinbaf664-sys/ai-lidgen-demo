@@ -101,7 +101,17 @@ async function fetchWithRateLimitRetry(
       return response;
     }
 
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const retryAfter = response.headers.get("retry-after");
+    const retryAfterSeconds = retryAfter ? Number(retryAfter) : Number.NaN;
+    const retryAfterDateMs = retryAfter && !Number.isFinite(retryAfterSeconds)
+      ? Date.parse(retryAfter) - Date.now()
+      : Number.NaN;
+    const boundedDelay = Number.isFinite(retryAfterSeconds)
+      ? Math.min(Math.max(retryAfterSeconds * 1_000, delayMs), 5_000)
+      : Number.isFinite(retryAfterDateMs)
+        ? Math.min(Math.max(retryAfterDateMs, delayMs), 5_000)
+        : delayMs;
+    await new Promise((resolve) => setTimeout(resolve, boundedDelay));
     response = await fetch(endpoint, init);
   }
 
